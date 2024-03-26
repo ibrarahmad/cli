@@ -1,9 +1,15 @@
-name: NODE_NAME
-advertise-client-urls: http://IP_NODE:2379
-data-dir: /var/lib/etcd/postgresql
-initial-advertise-peer-urls: http://IP_NODE:2380
-initial-cluster: NODE_NAME=http://IP_NODE:2380
-initial-cluster-state: new
-initial-cluster-token: devops_token
-listen-client-urls: http://IP_NODE:2379,http://localhost:2379
-listen-peer-urls: http://IP_NODE:2380
+name: 'NODE_NAME'
+data-dir: '/var/lib/etcd/postgresql'
+snapshot-count: 10000
+heartbeat-interval: 100
+election-timeout: 1000
+listen-peer-urls: 'http://0.0.0.0:2380'
+listen-client-urls: 'http://0.0.0.0:2379'
+advertise-client-urls: 'http://NODE_IP:2379'
+initial-advertise-peer-urls: 'http://NODE_IP:2380'
+initial-cluster: 'NODE_NAME=http://NODE_IP:2380'
+initial-cluster-token: 'etcd-cluster-01'
+initial-cluster-state: 'new'
+auto-compaction-retention: '1'
+quota-backend-bytes: 8589934592
+

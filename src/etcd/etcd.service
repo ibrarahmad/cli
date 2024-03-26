@@ -1,17 +1,38 @@
 [Unit]
-Description=etcd key-value store
+Description=etcd - A highly-available key value store for shared configuration and service discovery
 Documentation=https://github.com/etcd-io/etcd
 After=network.target
+Wants=network-online.target
 
 [Service]
 User=etcd
+Group=etcd
 Type=notify
-Environment=ETCD_DATA_DIR=/var/lib/etcd
-Environment=ETCD_NAME=%m
+
+# Use the configuration file for specifying additional options
 ExecStart=/usr/local/bin/etcd --config-file /etc/etcd/etcd.yaml
-Restart=always
-RestartSec=10s
+
+# Specifies the maximum file descriptor number that can be opened by this process
 LimitNOFILE=40000
+
+# Restart service on failure. Consider adjusting the restart policy as per your requirements
+Restart=on-failure
+
+# Time to wait before restarting a service
+RestartSec=10s
+
+# Use this to limit the amount of CPU time the service process may consume
+# CPUQuota=200%
+
+# Uncomment and set the below to limit the amount of memory the service process can use
+# MemoryLimit=1G
+
+# Set TimeoutStartSec to limit the time for the service to start up
+TimeoutStartSec=0
+
+# Set an environment variable with this option
+#Environment="ETCD_UNSUPPORTED_ARCH=arm64"
 
 [Install]
 WantedBy=multi-user.target
+

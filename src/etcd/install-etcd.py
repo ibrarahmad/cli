@@ -61,7 +61,7 @@ def configure_etcd():
 
     conf_file = thisDir + "/etcd.yaml"
     util.replace("NODE_NAME", get_hostname(), conf_file, True)
-    util.replace("IP_NODE", get_local_ip(), conf_file, True)
+    util.replace("NODE_IP", get_local_ip(), conf_file, True)
     osSys("sudo cp " + conf_file + "  /etc/etcd/.")
 
     # Set ownership
