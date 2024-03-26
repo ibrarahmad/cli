@@ -226,7 +226,7 @@ def run_script(componentName, scriptName, scriptParm):
 
     rc = 0
     compState = util.get_comp_state(componentName)
-    if compState == "Enabled": 
+    if compState == "Enabled":
         if os.path.isfile(scriptFile):
             run = cmd + " " + scriptFile + " " + scriptParm
             rc = os.system(run)
@@ -1461,7 +1461,7 @@ if p_mode in native_list:
     if p_mode == "backrest":
        bin_path = os.path.join(MY_HOME, "backrest", "backrest.py")
     elif p_mode == "etcd":
-       bin_path = "/usr/local/bin/etcd"
+       bin_path = os.path.join(MY_HOME, "etcd", "etcd.py")
     elif p_mode == "ansible":
        bin_path = "/usr/local/bin/ansible"
     elif p_mode == "patroni":

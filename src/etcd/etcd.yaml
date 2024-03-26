@@ -1,0 +1,9 @@
+name: NODE_NAME
+advertise-client-urls: http://IP_NODE:2379
+data-dir: /var/lib/etcd/postgresql
+initial-advertise-peer-urls: http://IP_NODE:2380
+initial-cluster: NODE_NAME=http://IP_NODE:2380
+initial-cluster-state: new
+initial-cluster-token: devops_token
+listen-client-urls: http://IP_NODE:2379,http://localhost:2379
+listen-peer-urls: http://IP_NODE:2380

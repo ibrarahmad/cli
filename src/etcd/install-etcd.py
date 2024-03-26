@@ -4,11 +4,33 @@ import os
 import sys
 import util
 import subprocess
+import socket
+
+thisDir = os.path.dirname(os.path.realpath(__file__))
+osUsr = util.get_user()
+usrUsr = osUsr + ":" + osUsr
 
 def osSys(p_input, p_display=True):
     if p_display:
         print("# " + p_input)
     subprocess.run(p_input.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def get_hostname():
+    try:
+        hostname = socket.gethostname()
+        return hostname
+    except socket.error as e:
+        print("Error: ", e)
+        return None
+
+def get_local_ip():
+    try:
+        hostname = socket.gethostname()
+        ip_address = socket.gethostbyname(hostname)
+        return ip_address
+    except socket.error as e:
+        print("Error: ", e)
+        return None
 
 def install_dependencies():
     """Install required dependencies."""
@@ -31,10 +53,16 @@ def configure_etcd():
     osSys("etcdctl version")
 
     # Create necessary directories and users
+    osSys("sudo rm -rf /var/lib/etcd/")
     osSys("sudo mkdir -p /var/lib/etcd/")
     osSys("sudo mkdir -p /etc/etcd")
     osSys("sudo groupadd --system etcd")
     osSys("sudo useradd -s /sbin/nologin --system -g etcd etcd")
+
+    conf_file = thisDir + "/etcd.yaml"
+    util.replace("NODE_NAME", get_hostname(), conf_file, True)
+    util.replace("IP_NODE", get_local_ip(), conf_file, True)
+    osSys("sudo cp " + conf_file + "  /etc/etcd/.")
 
     # Set ownership
     osSys("sudo chown -R etcd:etcd /var/lib/etcd/")
