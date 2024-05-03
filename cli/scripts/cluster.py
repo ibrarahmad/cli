@@ -271,7 +271,6 @@ def load_json(cluster_name):
                     node.append(n)  
             else:
                 util.exit_message("localhost info missing from JSON", 1)
-       
     return (
         db,
         db_settings,
@@ -362,7 +361,7 @@ def init(cluster_name):
         else:
             util.exit_message("cannot ssh to node")
 
-    ssh_install_pgedge(cluster_name, db[0]["name"], db_settings, db[0]["username"], db[0]["password"], nodes)
+    ssh_install_pgedge_all(cluster_name, db[0]["name"], db_settings, db[0]["username"], db[0]["password"], nodes)
     ssh_cross_wire_pgedge(cluster_name, db[0]["name"], db_settings, db[0]["username"], db[0]["password"], nodes)
     if len(db) > 1:
         for database in db[1:]:
@@ -420,51 +419,63 @@ def print_install_hdr(cluster_name, db, db_user, count):
         f"######## ssh_install_pgedge: cluster={cluster_name}, db={db}, db_user={db_user}, count={count}"
     )
 
-
-def ssh_install_pgedge(cluster_name, db, db_settings, db_user, db_passwd, nodes):
+def ssh_install_pgedge_all(cluster_name, db, db_settings, db_user, db_passwd, nodes):
     """Install pgEdge on every node in a cluster."""
-
+    print_install_hdr(cluster_name, db, db_user, len(nodes))
     for n in nodes:
-        print_install_hdr(cluster_name, db, db_user, len(nodes))
-        ndnm = n["name"]
-        ndpath = n["path"]
-        ndip = n["ip_address"]
-        try:
-            ndport = str(n["port"])
-        except Exception:
-            ndport = "5432"
+        ssh_install_pgedge(cluster_name, db, db_settings, db_user, db_passwd, n)
+        ssh_setup_pgedge(cluster_name, db, db_settings, db_user, db_passwd, n)
 
-        REPO = os.getenv("REPO", "")
-        if REPO == "":
-            REPO = "https://pgedge-upstream.s3.amazonaws.com/REPO"
-            os.environ["REPO"] = REPO
+def ssh_install_pgedge(cluster_name, db, db_settings, db_user, db_passwd, n):
+    ndnm = n["name"]
+    ndpath = n["path"]
+    ndip = n["ip_address"]
+    try:
+        ndport = str(n["port"])
+    except Exception:
+        ndport = "5432"
 
-        install_py = "install.py"
+    REPO = os.getenv("REPO", "")
+    if REPO == "":
+        REPO = "https://pgedge-upstream.s3.amazonaws.com/REPO"
+        os.environ["REPO"] = REPO
 
-        util.message(
-            f"########                node={ndnm}, host={ndip}, path={ndpath} REPO={REPO}\n"
-        )
-        pg = db_settings["pg_version"]
-        spock = db_settings["spock_version"]        
+    install_py = "install.py"
 
-        cmd0 = f"export REPO={REPO}; "
-        cmd1 = f"mkdir -p {ndpath}; cd {ndpath}; "
-        cmd2 = f'python3 -c "\\$(curl -fsSL {REPO}/{install_py})"'
-        util.echo_cmd(cmd0 + cmd1 + cmd2, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    util.message(
+        f"########                node={ndnm}, host={ndip}, path={ndpath} REPO={REPO}\n"
+    )
 
-        nc = os.path.join(ndpath, "pgedge", "pgedge ")
-        parms = f" -U {db_user} -P {db_passwd} -d {db} --port {ndport}"
-        if pg is not None and pg != '':
-            parms = parms + f" --pg {pg}"
-        if spock is not None and spock != '':
-            parms = parms + f" --spock_ver {spock}"
-        util.echo_cmd(f"{nc} setup {parms}", host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
-        if db_settings["auto_ddl"] == "on":
-            cmd = nc + " db guc-set spock.enable_ddl_replication on;"
-            cmd = cmd + " " + nc + " db guc-set spock.include_ddl_repset on;"
-            cmd = cmd + " " + nc + " db guc-set spock.allow_ddl_from_functions on;"
-            util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
-        util.message("#")
+    cmd0 = f"export REPO={REPO}; "
+    cmd1 = f"mkdir -p {ndpath}; cd {ndpath}; "
+    cmd2 = f'python3 -c "\\$(curl -fsSL {REPO}/{install_py})"'
+    util.echo_cmd(cmd0 + cmd1 + cmd2, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+
+def ssh_setup_pgedge(cluster_name, db, db_settings, db_user, db_passwd, n):
+    ndnm = n["name"]
+    ndpath = n["path"]
+    ndip = n["ip_address"]
+    try:
+        ndport = str(n["port"])
+    except Exception:
+        ndport = "5432"
+    
+    pg = db_settings["pg_version"]
+    spock = db_settings["spock_version"]        
+    
+    nc = os.path.join(ndpath, "pgedge", "pgedge ")
+    parms = f" -U {db_user} -P {db_passwd} -d {db} --port {ndport}"
+    if pg is not None and pg != '':
+        parms = parms + f" --pg {pg}"
+    if spock is not None and spock != '':
+        parms = parms + f" --spock_ver {spock}"
+    util.echo_cmd(f"{nc} setup {parms}", host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    if db_settings["auto_ddl"] == "on":
+        cmd = nc + " db guc-set spock.enable_ddl_replication on;"
+        cmd = cmd + " " + nc + " db guc-set spock.include_ddl_repset on;"
+        cmd = cmd + " " + nc + " db guc-set spock.allow_ddl_from_functions on;"
+        util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    util.message("#")
 
 
 def create_spock_db(nodes,db,db_settings):
@@ -709,6 +720,79 @@ def app_remove(cluster_name, app_name, database_name=None):
     else:
         util.exit_message("Invalid application name.")
 
+def list_nodes(cluster_name):
+    """List all nodes in the cluster."""
+    
+    cluster_data = get_cluster_json(cluster_name)
+
+    nodes_list = []
+    for group in cluster_data['node_groups']['localhost']:
+        for node in group['nodes']:
+            node_info = (
+                f"Node: {node['name']}, IP: {node['ip_address']}, "
+                f"Port: {node['port']}, Active: {'Yes' if node['is_active'] else 'No'}"
+            )
+            nodes_list.append(node_info)
+
+    return nodes_list
+
+def add_node(cluster_name, node_name):
+    """Add new node to cluster."""
+   
+    db, db_settings, nodes = load_json(cluster_name)
+    
+    cluster_data = get_cluster_json(cluster_name)
+
+    with open(node_name + '.json', 'r') as file:
+        node_data = json.load(file)
+
+    os_kuser = 'os_user'
+    ssh_kkey= 'ssh_key'
+    os_vuser = nodes[0][os_kuser]
+    ssh_vkey = nodes[0][ssh_kkey]
+    
+    node = node_data["nodes"]
+    node[0][os_kuser] = os_vuser
+    node[0][ssh_kkey] = ssh_vkey
+    n = node[0]
+    port=n["port"]
+
+    ssh_install_pgedge(cluster_name, db[0]["name"], db_settings, db[0]["username"], db[0]["password"], n)
+    ssh_setup_pgedge(cluster_name, db[0]["name"], db_settings, db[0]["username"], db[0]["password"], n)
+    
+    cmd0 = f'cd {n["path"]}/pgedge/;'
+    cmd1 = f'./pgedge install backrest;'
+    cmd2 = f'./pgedge set BACKUP restore_path /home/ibrar/test;'
+    cmd3 = f'./pgedge set BACKUP pg1-port {port};'
+    cmd4 = f'./pgedge backrest show-config;'
+    cmd5 = f'./pgedge backrest save-config;'
+    cmd6 = f'sudo cp pgbackrest.conf /etc/pgbackrest/'
+    util.echo_cmd(cmd0 + cmd1 + cmd2 + cmd3 + cmd4 + cmd5 + cmd6 , host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    
+    cmd0 = f'cd {n["path"]}/pgedge/;'
+    cmd1 = f'./pgedge set BACKUP restore_path /home/ibrar/test;'
+    cmd2 = f'./pgedge backrest restore pg16;'
+    util.echo_cmd(cmd0 + cmd1 + cmd2, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+
+    #cluster_data['node_groups']['localhost'].append(node_data)
+    #write_cluster_json(cluster_name, cluster_data)
+
+def remove_node(cluster_name, node_name):
+    """Remove node from cluster."""
+    
+    cluster_data = get_cluster_json(cluster_name)
+    
+    node_groups = cluster_data.get('node_groups', {})
+    localhost_nodes = node_groups.get('localhost', [])
+
+    for node_group in localhost_nodes:
+        nodes = node_group.get('nodes', [])
+        for node in nodes:
+            if node.get('name') == node_name:
+                nodes.remove(node)
+                break
+
+    write_cluster_json(cluster_name, cluster_data)
 
 if __name__ == "__main__":
     fire.Fire(
@@ -716,6 +800,9 @@ if __name__ == "__main__":
             "json-template": create_remote_json,
             "json-validate": validate,
             "init": init,
+            "list-nodes": list_nodes,
+            "add-node": add_node,
+            "remove-node": remove_node,
             "replication-begin": replication_all_tables,
             "replication-check": replication_check,
             "add-db": add_db,

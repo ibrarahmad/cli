@@ -1837,6 +1837,32 @@ def put_pgconf_auto(p_pgver, p_conf):
 
     return
 
+def get_pgconf_value(p_pgver, p_key):
+    config_file = get_pgconf_filename(p_pgver)
+    
+    if config_file == "":  
+        return False
+    
+    parameter_value = None
+
+    with open(config_file, 'r') as conf_file:
+        # Read each line of the file
+        for line in conf_file:
+            # Ignore comments and empty lines
+            if line.strip() == '' or line.strip().startswith('#'):
+                continue
+            # Split the line into parameter and value
+            parts = line.split('=')
+            if len(parts) == 2:
+                key = parts[0].strip()
+                value = parts[1].strip().split('#')[0].strip()  # Remove comments
+                # Check if the parameter matches the one we're looking for
+                if key == p_key:
+                    parameter_value = value
+                    break
+
+    return parameter_value
+
 
 def remove_pgconf_keyval(p_pgver, p_key, p_val=""):
     s = get_pgconf(p_pgver)
