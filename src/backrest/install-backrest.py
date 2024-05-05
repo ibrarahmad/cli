@@ -49,6 +49,7 @@ def configure_backup_settings():
         },
         "global": {
             "repo1-path": repo1_path,
+            "repo1-type": "local",
             "repo1-cipher-pass": "xx",
             "repo1-cipher-type": "aes-256-cbc",
             "repo1-s3-bucket": "xx",
@@ -62,12 +63,13 @@ def configure_backup_settings():
             "log-level-console": "info"
         },
         "stanza": {
-            "stanza" : "xx",
-            "pg1-path" : "xx",
-            "pg1-user" : "xx",
-            "pg1-port" : "5432",
-            "pg1-host" : "127.0.0.1",
-            "global:archive-push": {
+            "stanza0" : "xx",
+            "pg1-path0" : "xx",
+            "pg1-user0" : "xx",
+            "pg1-port0" : "5432",
+            "pg1-host0" : "127.0.0.1",
+            "db-socket-path0" : "/tmp",
+            "global:archive-push0": {
                 "compress-level": "3"
             }
         }
@@ -100,8 +102,10 @@ def setup_pgbackrest_conf():
     """
     config = fetch_backup_config()
     usrUsr = osUsr
-    dataDir = f"{thisDir}/../data"
-    restoreDir = f"{thisDir}/../restore"
+    parentDir = os.path.dirname(thisDir)
+    
+    dataDir = f"{parentDir}/data"
+    restoreDir = f"{parentDir}/restore"
 
     osSys(f"sudo chown {usrUsr} /var/log/pgbackrest")
     osSys("sudo mkdir -p /etc/pgbackrest /etc/pgbackrest/conf.d")
@@ -119,11 +123,12 @@ def setup_pgbackrest_conf():
     util.replace("pg1-user=xx", "pg1-user=" + usrUsr, conf_file, True)
     util.replace("pg1-database=xx", "pg1-database=" + "postgres", conf_file, True)
     
-    util.set_value("BACKUP", "stanza", pgV())
-    util.set_value("BACKUP", "pg1-path", dataDir)
     util.set_value("BACKUP", "restore_path", restoreDir)
-    util.set_value("BACKUP", "pg1-user", usrUsr)
-    util.set_value("BACKUP", "pg1-database", "postgres")
+    
+    util.set_value("BACKUP", "stanza0", pgV())
+    util.set_value("BACKUP", "pg1-path0", dataDir)
+    util.set_value("BACKUP", "pg1-user0", usrUsr)
+    util.set_value("BACKUP", "pg1-database0", "postgres")
     
     osSys("cp " + conf_file + "  /etc/pgbackrest/.")
 
@@ -201,41 +206,38 @@ def define_cron_job():
     osSys(f"sudo cat {backrest_crontab_path} | sudo tee {system_crontab_path} > /dev/null", False)
 
 def fetch_backup_config():
-    """Fetch backrest configuration."""
+    """Fetch and return the pgBackRest configuration from system settings."""
     config = {
+        "main": {},
         "global": {},
         "stanza": {}
     }
 
+    main_params = ["restore_path", "backup-type", "stanza_count"]
     global_params = [
-        "repo1-path",
-        "pg1-path",
-        "process-max",
-        "repo1-retention-full",
-        "repo1-retention-full-type",
-        "log-level-console"
+        "repo1-retention-full", "repo1-retention-full-type", "repo1-path",
+        "repo1-cipher-type", "repo1-cipher-pass", "repo1-s3-bucket", "repo1-s3-key-secret", "repo1-s3-key",
+        "repo1-s3-region", "repo1-s3-endpoint", "log-level-console", "repo1-type",
+        "process-max", "compress-level"
     ]
-
     stanza_params = [
-        "stanza",
-        "database",
-        "pg1-socket-path",
-        "pg1-user",
-        "primary-port",
-        "primary-host",
-        "repo1-cipher-type",
-        "restore-path",
-        "backup-type",
-        "s3-bucket",
-        "s3-region",
-        "s3-endpoint"
+        "pg1-path", "pg1-user", "pg1-database", "db-socket-path", "pg1-port", "pg1-host"
     ]
 
+    # Fetch main and global parameters
+    for param in main_params:
+        config["main"][param] = util.get_value("BACKUP", param)
     for param in global_params:
         config["global"][param] = util.get_value("BACKUP", param)
 
-    for param in stanza_params:
-        config["stanza"][param] = util.get_value("BACKUP", param)
+    # Determine the number of stanzas and fetch their specific parameters
+    stanza_count = int(config["main"].get("stanza_count", 1))
+    for i in range(stanza_count):
+        stanza_name = util.get_value("BACKUP", f"stanza{i}")
+        config["stanza"][stanza_name] = {}
+        for param in stanza_params:
+            indexed_param = f"{param}{i}"
+            config["stanza"][stanza_name][param] = util.get_value("BACKUP", indexed_param)
 
     return config
 
