@@ -14,7 +14,7 @@ from dateutil import parser
 from datetime import datetime
 import logging
 
-def run_command(command_args, max_attempts=1, timeout=None, capture_output=False, env=None, cwd=None, verbose=True):
+def run_command(command_args, max_attempts=1, timeout=None, capture_output=False, env=None, cwd=None, verbose=False):
     """
     Executes an external command, with options to retry, set timeout, and capture output.
 
@@ -44,13 +44,13 @@ def run_command(command_args, max_attempts=1, timeout=None, capture_output=False
                 output = result.stdout
                 error = result.stderr
             if verbose:
-                print(f"Attempt {attempts}: Command executed successfully.")
+                print(f"Command executed successfully.")
             return {"success": True, "output": output, "error": error, "attempts": attempts}
 
         except subprocess.CalledProcessError as e:
             error = e.stderr if capture_output else str(e)
             if verbose:
-                print(f"Attempt {attempts}: Error executing command: {error}")
+                print(f"Error executing command: {error}")
             time.sleep(1)  # Simple backoff strategy
         except subprocess.TimeoutExpired as e:
             error = f"Command timed out after {timeout} seconds."
@@ -176,11 +176,11 @@ def ereport(severity, message, detail=None, hint=None, context=None):
     """
     parts = [f"{message}"]
     if detail:
-        parts.append(f" |\tDETAIL: {detail}")
+        parts.append(f" \tDETAIL: {detail}")
     if hint:
-        parts.append(f" |\tHINT: {hint}")
+        parts.append(f" \tHINT: {hint}")
     if context:
-        parts.append(f" |\tCONTEXT: {context}")
+        parts.append(f" \tCONTEXT: {context}")
 
     full_message = "\n".join(parts)
 

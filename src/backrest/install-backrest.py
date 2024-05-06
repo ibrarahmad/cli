@@ -49,7 +49,9 @@ def configure_backup_settings():
         },
         "global": {
             "repo1-path": repo1_path,
-            "repo1-type": "local",
+            "repo1-host-user": "xx",
+            "repo1-host": "xx",
+            "repo1-type": "posix",
             "repo1-cipher-pass": "xx",
             "repo1-cipher-type": "aes-256-cbc",
             "repo1-s3-bucket": "xx",
@@ -104,7 +106,7 @@ def setup_pgbackrest_conf():
     usrUsr = osUsr
     parentDir = os.path.dirname(thisDir)
     
-    dataDir = f"{parentDir}/data"
+    dataDir = f"{parentDir}/data/{pgV()}"
     restoreDir = f"{parentDir}/restore"
 
     osSys(f"sudo chown {usrUsr} /var/log/pgbackrest")
@@ -115,7 +117,7 @@ def setup_pgbackrest_conf():
 
     osSys("sudo mkdir -p /var/lib/pgbackrest")
     osSys("sudo chmod 750 /var/lib/pgbackrest")
-    osSys(f"sudo chown {usrUsr} /var/lib/pgbackrest")
+    osSys(f"sudo chown -R {usrUsr}:{usrUsr} /var/lib/pgbackrest")
 
     conf_file = thisDir + "/pgbackrest.conf"
     util.replace("pgXX", pgV(), conf_file, True)
@@ -124,6 +126,9 @@ def setup_pgbackrest_conf():
     util.replace("pg1-database=xx", "pg1-database=" + "postgres", conf_file, True)
     
     util.set_value("BACKUP", "restore_path", restoreDir)
+    
+    util.set_value("BACKUP", "repo1-host", "127.0.0.1")
+    util.set_value("BACKUP", "repo1-host-user", usrUsr)
     
     util.set_value("BACKUP", "stanza0", pgV())
     util.set_value("BACKUP", "pg1-path0", dataDir)
@@ -215,7 +220,7 @@ def fetch_backup_config():
 
     main_params = ["restore_path", "backup-type", "stanza_count"]
     global_params = [
-        "repo1-retention-full", "repo1-retention-full-type", "repo1-path",
+        "repo1-retention-full", "repo1-retention-full-type", "repo1-path", "repo1-host-user", "repo1-host",
         "repo1-cipher-type", "repo1-cipher-pass", "repo1-s3-bucket", "repo1-s3-key-secret", "repo1-s3-key",
         "repo1-s3-region", "repo1-s3-endpoint", "log-level-console", "repo1-type",
         "process-max", "compress-level"

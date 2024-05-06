@@ -736,46 +736,68 @@ def list_nodes(cluster_name):
 
     return nodes_list
 
-def add_node(cluster_name, node_name):
-    """Add new node to cluster."""
-   
+def add_node(cluster_name, source_node, node_name, **kwargs):
+    """Add new node to cluster from source node settings or from provided details.
+    
+    Args:
+        cluster_name (str): Name of the cluster.
+        source_node (str): Source node to copy settings from if no direct details provided.
+        node_name (str): Name of the new node.
+        **kwargs: Optional keyword arguments for node details (ip_address, port, path).
+    """
+
+    # Load cluster data and source node data
     db, db_settings, nodes = load_json(cluster_name)
-    
     cluster_data = get_cluster_json(cluster_name)
-
-    with open(node_name + '.json', 'r') as file:
-        node_data = json.load(file)
-
-    os_kuser = 'os_user'
-    ssh_kkey= 'ssh_key'
-    os_vuser = nodes[0][os_kuser]
-    ssh_vkey = nodes[0][ssh_kkey]
+    source_node_data = next((node for node in nodes if node['name'] == source_node), None)
     
-    node = node_data["nodes"]
-    node[0][os_kuser] = os_vuser
-    node[0][ssh_kkey] = ssh_vkey
-    n = node[0]
-    port=n["port"]
+    if not kwargs:
+        node_file = f"{node_name}.json"
+        if not os.path.exists(node_file):
+            raise FileNotFoundError(f"No details provided and {node_file} does not exist.")
+        with open(node_file, 'r') as file:
+            node_data = json.load(file)["nodes"][0]
+    else:
+        node_data = kwargs
+   
+    sip = None
+    sport = None
+    for group in cluster_data['node_groups']['localhost']:
+        for node in group['nodes']:
+            if source_node == node['name']:
+                sip = node['ip_address']
+                sport = node['port']
 
+    if sip == None:
+        util.exit_message(f"Node {source_node} not found.")
+        return
+   
+
+    # Copy necessary details from source node
+    node_data.setdefault('os_user', source_node_data['os_user'])
+    node_data.setdefault('ssh_key', source_node_data['ssh_key'])
+    
+    # Prepare node settings
+    n = node_data
+    port = n["port"]
+    
+    # Setup new node with settings
     ssh_install_pgedge(cluster_name, db[0]["name"], db_settings, db[0]["username"], db[0]["password"], n)
     ssh_setup_pgedge(cluster_name, db[0]["name"], db_settings, db[0]["username"], db[0]["password"], n)
     
-    cmd0 = f'cd {n["path"]}/pgedge/;'
-    cmd1 = f'./pgedge install backrest;'
-    cmd2 = f'./pgedge set BACKUP restore_path /home/ibrar/test;'
-    cmd3 = f'./pgedge set BACKUP pg1-port {port};'
-    cmd4 = f'./pgedge backrest show-config;'
-    cmd5 = f'./pgedge backrest save-config;'
-    cmd6 = f'sudo cp pgbackrest.conf /etc/pgbackrest/'
-    util.echo_cmd(cmd0 + cmd1 + cmd2 + cmd3 + cmd4 + cmd5 + cmd6 , host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
-    
-    cmd0 = f'cd {n["path"]}/pgedge/;'
-    cmd1 = f'./pgedge set BACKUP restore_path /home/ibrar/test;'
-    cmd2 = f'./pgedge backrest restore pg16;'
-    util.echo_cmd(cmd0 + cmd1 + cmd2, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    cmd0 = f"cd {n['path']}/pgedge/;"
+    cmd1 = f"./pgedge set BACKUP pg1-port {sport};"
+    cmd1 = f"./pgedge set BACKUP repo1-host {sip};"
+    cmd1 = f"./pgedge set BACKUP repo1-host-user {n['os_user']};"
+    cmd2 = f"./pgedge backrest show-config;"
+    cmd3 = f"./pgedge backrest save-config;"
 
-    #cluster_data['node_groups']['localhost'].append(node_data)
-    #write_cluster_json(cluster_name, cluster_data)
+    cmd3 = f"./pgedge backrest create-replica pg16;"
+    util.echo_cmd(cmd0 + cmd1 + cm2 + cmd3, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    
+
+    # cluster_data['node_groups']['localhost'].append(node_data)
+    # write_cluster_json(cluster_name, cluster_data)
 
 def remove_node(cluster_name, node_name):
     """Remove node from cluster."""
