@@ -134,8 +134,6 @@ def setup_pgbackrest_conf():
     util.set_value("BACKUP", "pg1-path0", dataDir)
     util.set_value("BACKUP", "pg1-user0", usrUsr)
     util.set_value("BACKUP", "pg1-database0", "postgres")
-    
-    osSys("cp " + conf_file + "  /etc/pgbackrest/.")
 
 def generate_cipher_pass():
     """

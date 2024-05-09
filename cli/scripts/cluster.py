@@ -477,7 +477,6 @@ def ssh_setup_pgedge(cluster_name, db, db_settings, db_user, db_passwd, n):
         util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
     util.message("#")
 
-
 def create_spock_db(nodes,db,db_settings):
     for n in nodes:
         nc = n["path"] + os.sep + "pgedge" + os.sep + "pgedge "
@@ -684,6 +683,13 @@ def app_install(cluster_name, app_name, database_name=None, factor=1):
     else:
         util.exit_message(f"Invalid app_name '{app_name}'.")
 
+def add_node(cluster_name, node_name):
+    """Add new node to cluster."""
+    db, db_settings, nodes = load_json(cluster_name)
+
+def remove_node(cluster_name, nodeName):
+    """Remove node from cluster."""
+    db, db_settings, nodes = load_json(cluster_name)
 
 def app_remove(cluster_name, app_name, database_name=None):
     """Remove test application from cluster.
@@ -736,33 +742,30 @@ def list_nodes(cluster_name):
 
     return nodes_list
 
-def add_node(cluster_name, source_node, node_name, **kwargs):
+def add_node(cluster_name, source_node, node_name):
     """Add new node to cluster from source node settings or from provided details.
     
     Args:
         cluster_name (str): Name of the cluster.
-        source_node (str): Source node to copy settings from if no direct details provided.
+        source_node (str): Source node.
         node_name (str): Name of the new node.
-        **kwargs: Optional keyword arguments for node details (ip_address, port, path).
     """
+    
+    stanza = "pg16"
 
-    # Load cluster data and source node data
     db, db_settings, nodes = load_json(cluster_name)
     cluster_data = get_cluster_json(cluster_name)
     source_node_data = next((node for node in nodes if node['name'] == source_node), None)
     
-    if not kwargs:
-        node_file = f"{node_name}.json"
-        if not os.path.exists(node_file):
-            raise FileNotFoundError(f"No details provided and {node_file} does not exist.")
-        with open(node_file, 'r') as file:
-            node_data = json.load(file)["nodes"][0]
-    else:
-        node_data = kwargs
+    node_file = f"{node_name}.json"
+    if not os.path.exists(node_file):
+        util.exit_message(f"Missing node file {node_name}.json.")
+    with open(node_file, 'r') as file:
+        node_data = json.load(file)["nodes"][0]
    
     sip = None
     sport = None
-    for group in cluster_data['node_groups']['localhost']:
+    for group in cluster_data['node_groups']['aws']:
         for node in group['nodes']:
             if source_node == node['name']:
                 sip = node['ip_address']
@@ -771,7 +774,6 @@ def add_node(cluster_name, source_node, node_name, **kwargs):
     if sip == None:
         util.exit_message(f"Node {source_node} not found.")
         return
-   
 
     # Copy necessary details from source node
     node_data.setdefault('os_user', source_node_data['os_user'])
@@ -780,24 +782,33 @@ def add_node(cluster_name, source_node, node_name, **kwargs):
     # Prepare node settings
     n = node_data
     port = n["port"]
-    
+   
     # Setup new node with settings
     ssh_install_pgedge(cluster_name, db[0]["name"], db_settings, db[0]["username"], db[0]["password"], n)
     ssh_setup_pgedge(cluster_name, db[0]["name"], db_settings, db[0]["username"], db[0]["password"], n)
+   
+    cmd0 = f"cd {source_node_data['path']}/pgedge/;"
+    cmd1 = f"./pgedge install backrest;"
+    cmd2 = f"./pgedge set BACKUP stanza_count 1;"
+    cmd3 = f'./pgedge set BACKUP repo1-path /var/lib/pgbackrest/;'
+    cmd4 = f'./pgedge set BACKUP repo1-host " ";'
+    cmd5 = f"./pgedge set BACKUP repo1-host-user {n['os_user']};"
+    cmd6 = f"./pgedge set BACKUP repo1-type s3;"
     
-    cmd0 = f"cd {n['path']}/pgedge/;"
-    cmd1 = f"./pgedge set BACKUP pg1-port {sport};"
-    cmd1 = f"./pgedge set BACKUP repo1-host {sip};"
-    cmd1 = f"./pgedge set BACKUP repo1-host-user {n['os_user']};"
-    cmd2 = f"./pgedge backrest show-config;"
-    cmd3 = f"./pgedge backrest save-config;"
-
-    cmd3 = f"./pgedge backrest create-replica pg16;"
-    util.echo_cmd(cmd0 + cmd1 + cm2 + cmd3, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    cmd10 = f'./pgedge set BACKUP pg1-host0 " ";'
+    cmd11 = f'./pgedge set BACKUP pg1-path0 {source_node_data["path"]}/pgedge/data/{stanza};'
+    cmd12 = f"./pgedge set BACKUP pg1-port0 {source_node_data['port']};"
     
+    cmd13 = f"./pgedge backrest show-config;"
+    cmd14 = f"./pgedge backrest save-config;"
+    cmd15 = f"./pgedge backrest create-stanza {stanza};"
+    cmd16 = f"./pgedge backrest backup {stanza};"
 
-    # cluster_data['node_groups']['localhost'].append(node_data)
-    # write_cluster_json(cluster_name, cluster_data)
+    util.echo_cmd(cmd0 + cmd1 + cmd2 + cmd3 + cmd4 + cmd5 + cmd6 + cmd7 + cmd8 + cmd9 + cmd10 + cmd11 + cmd12 + cmd13 + cmd14 + cmd15 + cmd16, host=sip, usr=n["os_user"], key=n["ssh_key"])
+
+
+    #cluster_data['node_groups']['localhost'].append(node_data)
+    #write_cluster_json(cluster_name, cluster_data)
 
 def remove_node(cluster_name, node_name):
     """Remove node from cluster."""

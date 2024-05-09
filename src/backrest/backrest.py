@@ -111,7 +111,7 @@ def save_config(filename="pgbackrest.conf"):
         for key, value in config["global"].items():
             if key == "compress-level":
                 continue  # Handle this key separately in its own section
-            if value != None:
+            if value != " ":
                 lines.append(f"{key} = {value}")
         lines.append("")  # Add a newline for separation
 
@@ -252,16 +252,11 @@ def _configure_replica(stanza):
     # Connection info for the primary server should be configured prior to calling this function
     primary_conninfo = f"host={config['stanza'][stanza]['pg1-host']} port={config['stanza'][stanza]['pg1-port']} user={config['stanza'][stanza]['pg1-user']}"
    
-    #host = config['stanza'][stanza]['pg1-host']
-    #port = config['stanza'][stanza]['pg1-port']
-    #cmd = "create user replication replication"
-    #psql_cmd(cmd, "pgedge", "postgres", pg, , usr, key):
-
     # Configure postgresql.conf for replica
     changes = {
         "hot_standby": "on",
         "primary_conninfo": primary_conninfo,
-        "port": "5433",
+        "port": f"{config['stanza'][stanza]['pg1-port']}",
         "log_directory": os.path.join(pg_data_dir, "log"),
         "archive_command": "cd .",
         "archive_mode": "on"
