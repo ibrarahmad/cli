@@ -449,9 +449,11 @@ def ssh_install_pgedge(cluster_name, db, db_settings, db_user, db_passwd, n):
     cmd0 = f"export REPO={REPO}; "
     cmd1 = f"mkdir -p {ndpath}; cd {ndpath}; "
     cmd2 = f'python3 -c "\\$(curl -fsSL {REPO}/{install_py})"'
-    util.echo_cmd(cmd0 + cmd1 + cmd2, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    rc = util.echo_cmd(cmd0 + cmd1 + cmd2, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    return rc
 
 def ssh_setup_pgedge(cluster_name, db, db_settings, db_user, db_passwd, n):
+    rc = 0
     ndnm = n["name"]
     ndpath = n["path"]
     ndip = n["ip_address"]
@@ -474,8 +476,9 @@ def ssh_setup_pgedge(cluster_name, db, db_settings, db_user, db_passwd, n):
         cmd = nc + " db guc-set spock.enable_ddl_replication on;"
         cmd = cmd + " " + nc + " db guc-set spock.include_ddl_repset on;"
         cmd = cmd + " " + nc + " db guc-set spock.allow_ddl_from_functions on;"
-        util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+        rc = util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
     util.message("#")
+    return rc
 
 def create_spock_db(nodes,db,db_settings):
     for n in nodes:
@@ -742,71 +745,100 @@ def list_nodes(cluster_name):
 
     return nodes_list
 
-def add_node(cluster_name, source_node, node_name):
-    """Add new node to cluster from source node settings or from provided details.
-    
-    Args:
-        cluster_name (str): Name of the cluster.
-        source_node (str): Source node.
-        node_name (str): Name of the new node.
+def add_node(cluster_name, source_node, target_node, stanza_create=False, do_backup=False, install_pgedge=True, setup_pgedge=True):
     """
-    
-    stanza = "pg16"
+    Adds a new node to a cluster, copying configurations from a specified source node.
 
-    db, db_settings, nodes = load_json(cluster_name)
-    cluster_data = get_cluster_json(cluster_name)
-    source_node_data = next((node for node in nodes if node['name'] == source_node), None)
-    
-    node_file = f"{node_name}.json"
+    Args:
+        cluster_name (str): The name of the cluster to which the node is being added.
+        source_node (str): The node from which configurations are copied.
+        target_node (str): The new node being added.
+        stanza_create (bool): If True, creates a new pgBackRest stanza.
+        do_backup (bool): If True, performs a backup after setting up the node.
+        install_pgedge (bool): If True, installs pgEdge on the new node.
+        setup_pgedge (bool): If True, sets up pgEdge on the new node.
+    """
+    stanza = "pg16"
+    node_file = f"{target_node}.json"
     if not os.path.exists(node_file):
-        util.exit_message(f"Missing node file {node_name}.json.")
+        util.exit_message(f"Error: Missing node configuration file '{node_file}'.")
+        return
+
     with open(node_file, 'r') as file:
         node_data = json.load(file)["nodes"][0]
-   
-    sip = None
-    sport = None
-    for group in cluster_data['node_groups']['aws']:
-        for node in group['nodes']:
-            if source_node == node['name']:
-                sip = node['ip_address']
-                sport = node['port']
 
-    if sip == None:
-        util.exit_message(f"Node {source_node} not found.")
+    db, db_settings, nodes = load_json(cluster_name)
+    source_node_data = next((node for node in nodes if node['name'] == source_node), None)
+    if source_node_data is None:
+        util.exit_message(f"Error: Source node '{source_node}' not found in cluster data.")
         return
 
     # Copy necessary details from source node
-    node_data.setdefault('os_user', source_node_data['os_user'])
-    node_data.setdefault('ssh_key', source_node_data['ssh_key'])
-    
+    node_data.update({
+        'os_user': source_node_data['os_user'],
+        'ssh_key': source_node_data['ssh_key'],
+    })
+
     # Prepare node settings
     n = node_data
     port = n["port"]
    
     # Setup new node with settings
-    ssh_install_pgedge(cluster_name, db[0]["name"], db_settings, db[0]["username"], db[0]["password"], n)
-    ssh_setup_pgedge(cluster_name, db[0]["name"], db_settings, db[0]["username"], db[0]["password"], n)
+    if install_pgedge == True:
+        rc = ssh_install_pgedge(cluster_name, db[0]["name"], db_settings, db[0]["username"], db[0]["password"], n)
+        if (rc == 1):    
+            util.exit_message(f"Failed to install pgedge cluster on new node diretcory {node_data['path']}")
+    
+    if setup_pgedge == True:
+        rc = ssh_setup_pgedge(cluster_name, db[0]["name"], db_settings, db[0]["username"], db[0]["password"], n)
+        if (rc == 1):    
+            util.exit_message(f"Failed to configure pgedge cluster on new node")
    
-    cmd0 = f"cd {source_node_data['path']}/pgedge/;"
-    cmd1 = f"./pgedge install backrest;"
-    cmd2 = f"./pgedge set BACKUP stanza_count 1;"
-    cmd3 = f'./pgedge set BACKUP repo1-path /var/lib/pgbackrest/;'
-    cmd4 = f'./pgedge set BACKUP repo1-host " ";'
-    cmd5 = f"./pgedge set BACKUP repo1-host-user {n['os_user']};"
-    cmd6 = f"./pgedge set BACKUP repo1-type s3;"
+    cmd = f'''
+    cd {source_node_data['path']}/pgedge/;
+    ./pgedge install backrest;
+    ./pgedge set BACKUP stanza_count 1;
+    ./pgedge set BACKUP repo1-path /var/lib/pgbackrest/{source_node_data["name"]};
+    ./pgedge set BACKUP repo1-host " ";
+    ./pgedge set BACKUP repo1-cipher-pass " ";
+    ./pgedge set BACKUP repo1-host-user {n['os_user']};
+    ./pgedge set BACKUP pg1-host0 " ";
+    ./pgedge set BACKUP pg1-path0 {source_node_data["path"]}/pgedge/data/{stanza};
+    ./pgedge set BACKUP pg1-port0 {source_node_data['port']};
+    ./pgedge backrest show-config;
+    ./pgedge backrest save-config;
+    '''
+    sip = source_node_data['ip_address']
+    util.echo_cmd(cmd, host=sip, usr=n["os_user"], key=n["ssh_key"])
+   
+    if (stanza_create):
+        cmd0 = f"cd {source_node_data['path']}/pgedge/;"
+        cmd1 = f"./pgedge backrest create-stanza {stanza};"
+        util.echo_cmd(cmd0 + cmd1, host=sip, usr=n["os_user"], key=n["ssh_key"])
     
-    cmd10 = f'./pgedge set BACKUP pg1-host0 " ";'
-    cmd11 = f'./pgedge set BACKUP pg1-path0 {source_node_data["path"]}/pgedge/data/{stanza};'
-    cmd12 = f"./pgedge set BACKUP pg1-port0 {source_node_data['port']};"
+    if (do_backup):
+        cmd0 = f"cd {source_node_data['path']}/pgedge/;"
+        cmd1 = f"./pgedge backrest backup {stanza};"
+        util.echo_cmd(cmd0 + cmd1, host=sip, usr=n["os_user"], key=n["ssh_key"])
     
-    cmd13 = f"./pgedge backrest show-config;"
-    cmd14 = f"./pgedge backrest save-config;"
-    cmd15 = f"./pgedge backrest create-stanza {stanza};"
-    cmd16 = f"./pgedge backrest backup {stanza};"
-
-    util.echo_cmd(cmd0 + cmd1 + cmd2 + cmd3 + cmd4 + cmd5 + cmd6 + cmd7 + cmd8 + cmd9 + cmd10 + cmd11 + cmd12 + cmd13 + cmd14 + cmd15 + cmd16, host=sip, usr=n["os_user"], key=n["ssh_key"])
-
-
+    commands = f'''
+    cd {n['path']}/pgedge/;
+    ./pgedge install backrest;
+    ./pgedge set BACKUP stanza_count 1;
+    ./pgedge set BACKUP repo1-path /var/lib/pgbackrest/{source_node_data["name"]};
+    ./pgedge set BACKUP repo1-cipher-pass " ";
+    ./pgedge set BACKUP repo1-host {source_node_data["ip_address"]};
+    ./pgedge set BACKUP repo1-host-user {n['os_user']};
+    ./pgedge set BACKUP repo1-type s3;
+    ./pgedge set BACKUP pg1-host0 " ";
+    ./pgedge set BACKUP pg1-path0 {source_node_data["path"]}/pgedge/data/{stanza};
+    ./pgedge set BACKUP pg1-port0 {source_node_data['port']};
+    ./pgedge backrest show-config;
+    ./pgedge backrest save-config;
+    ./pgedge backrest restore {stanza};
+    '''
+    util.echo_cmd(commands, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+ 
     #cluster_data['node_groups']['localhost'].append(node_data)
     #write_cluster_json(cluster_name, cluster_data)
 
