@@ -839,8 +839,8 @@ def add_node(cluster_name, source_node, target_node, stanza_create=False, do_bac
     '''
     util.echo_cmd(commands, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
  
-    #cluster_data['node_groups']['localhost'].append(node_data)
-    #write_cluster_json(cluster_name, cluster_data)
+    cluster_data['node_groups']['localhost'].append(node_data)
+    write_cluster_json(cluster_name, cluster_data)
 
 def remove_node(cluster_name, node_name):
     """Remove node from cluster."""

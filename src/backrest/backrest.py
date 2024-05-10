@@ -12,11 +12,6 @@ from tabulate import tabulate
 
 thisDir = os.path.dirname(os.path.realpath(__file__))
 
-def pgBackrest(*args):
-    command = ["pgbackrest", f"--config={thisDir}/pgbackrest.conf"]
-    command.extend(args)
-    return command
-
 def pgV():
     """Return the first found among supported PostgreSQL versions."""
     pg_versions = ["pg14", "pg15", "pg16"]
@@ -137,6 +132,7 @@ def save_config(filename="pgbackrest.conf"):
     with open(f"{thisDir}/{filename}", "w") as f:
         f.write("\n".join(lines))
     util.message(f"Configuration saved to {thisDir}/{filename}.")
+    osSys(f"sudo cp {thisDir}/{filename} /etc/pgbackrest/")
 
     return filename
 
@@ -154,7 +150,7 @@ def backup(stanza, type="full"):
         util.message(f"Error: '{type}' is not a valid backup type. Allowed types are: {', '.join(valid_types)}.")
         return
 
-    command = pgBackrest("--stanza", stanza, "--type", type, "backup")
+    command = ["pgbackrest", "--stanza", stanza, "--type", type, "backup"]
 
     result = utilx.run_command(command)
     if result["success"]:
@@ -174,7 +170,7 @@ def restore(stanza, backup_label=None, recovery_target_time=None):
         util.message(status['message'])
         return
 
-    command = pgBackrest("--stanza", stanza, "restore", "--pg1-path", data_dir)
+    command = ["pgbackrest", "--stanza", stanza, "restore", "--pg1-path", data_dir]
 
     if status['exists']:
         command.append("--delta")
@@ -274,7 +270,7 @@ def list_backups():
     """List all available backups using pgBackRest."""
     config = fetch_backup_config()
     try:
-        command = pgBackrest("info", "--output=json")
+        command = ["pgbackrest", "info", "--output=json"]
         command_output = subprocess.check_output(
             command,
             stderr=subprocess.STDOUT,
@@ -317,14 +313,14 @@ def modify_postgresql_conf(stanza):
     """
     Modify 'postgresql.conf' to integrate with pgbackrest.
     """
-    aCmd = f"pgbackrest --config={thisDir}/pgbackrest.conf --stanza={stanza} archive-push %p"
+    aCmd = f"pgbackrest --stanza={stanza} archive-push %p"
     util.change_pgconf_keyval(pgV(), "archive_command", aCmd, p_replace=True)
     util.change_pgconf_keyval(pgV(), "archive_mode", "on", p_replace=True)
 
 def run_external_command(*args):
     """Execute an external pgBackRest command."""
 
-    command = pgBackrest(args)
+    command = args
     result = utilx.run_command(command)
     if result["success"]:
         util.message("Command executed successfully.")
@@ -351,7 +347,7 @@ def create_stanza(stanza):
     # Validate the configuration for the given stanza
     try:
         if validate_stanza_config(stanza, config):
-            command = pgBackrest("--stanza", stanza, "stanza-create")
+            command = ["pgbackrest", "--stanza", stanza, "stanza-create"]
             utilx.run_command(command)
             modify_postgresql_conf(stanza)
             modify_hba_conf()

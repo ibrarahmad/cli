@@ -87,6 +87,46 @@ def configure_backup_settings():
     
     print("Backup configuration has been set successfully.")
 
+def save_config(filename="pgbackrest.conf"):
+    """Save the current pgbackrest configuration to a file in standard format."""
+    config = fetch_backup_config()
+    lines = []
+
+    # Write global settings
+    if config["global"]:
+        lines.append("[global]")
+        for key, value in config["global"].items():
+            if key == "compress-level":
+                continue  # Handle this key separately in its own section
+            if value != " ":
+                lines.append(f"{key} = {value}")
+        lines.append("")  # Add a newline for separation
+
+        # Handle global:archive-push specifically if needed
+        if "compress-level" in config["global"]:
+            lines.append("[global:archive-push]")
+            lines.append(f"compress-level = {config['global']['compress-level']}")
+            lines.append("")  # Add a newline for separation
+
+    # Write stanza sections
+    stanza_count = int(config["main"].get("stanza_count", 1))
+    for i in range(stanza_count):
+        stanza_name = util.get_value("BACKUP", f"stanza{i}")
+        if stanza_name in config["stanza"]:
+            lines.append(f"[{stanza_name}]")
+            for key, value in config["stanza"][stanza_name].items():
+                clean_key = key.replace(str(i), '')  # Remove the index from key names
+                if value != " ":
+                    lines.append(f"{clean_key} = {value}")
+            lines.append("")  # Add a newline for separation
+
+    # Write the configuration to file
+    with open(f"{thisDir}/{filename}", "w") as f:
+        f.write("\n".join(lines))
+    util.message(f"Configuration saved to {thisDir}/{filename}.")
+
+    osSys(f"sudo cp {thisDir}/{filename} /etc/pgbackrest/")
+    return filename
 
 def setup_pgbackrest_links():
     """
@@ -109,9 +149,9 @@ def setup_pgbackrest_conf():
     dataDir = f"{parentDir}/data/{pgV()}"
     restoreDir = f"{parentDir}/restore"
 
+    save_config()
     osSys(f"sudo chown {usrUsr} /var/log/pgbackrest")
     osSys("sudo mkdir -p /etc/pgbackrest /etc/pgbackrest/conf.d")
-    osSys("sudo cp pgbackrest.conf /etc/pgbackrest/")
     osSys("sudo chmod 640 /etc/pgbackrest/pgbackrest.conf")
     osSys(f"sudo chown {usrUsr} /etc/pgbackrest/pgbackrest.conf")
 
@@ -127,7 +167,7 @@ def setup_pgbackrest_conf():
     
     util.set_value("BACKUP", "restore_path", restoreDir)
     
-    util.set_value("BACKUP", "repo1-host", "127.0.0.1")
+    util.set_value("BACKUP", "repo1-host", " ")
     util.set_value("BACKUP", "repo1-host-user", usrUsr)
     
     util.set_value("BACKUP", "stanza0", pgV())
