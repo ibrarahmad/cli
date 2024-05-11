@@ -125,7 +125,7 @@ INSERT INTO categories VALUES (9,  87, 'Management & Monitoring', 'Manage/Monito
 -- ## HUB ################################
 INSERT INTO projects VALUES ('hub', 'app', 0, 0, 'hub', 0, 'https://github.com/pgedge/cli','',0,'','','');
 INSERT INTO releases VALUES ('hub', 1, 'hub', '', '', 'hidden', '', 1, '', '', '');
-INSERT INTO versions VALUES ('hub', '24.4.7',  '',  1, '20240520', '', '', '');
+INSERT INTO versions VALUES ('hub', '24.4.7',  '',  1, '20240516', '', '', '');
 INSERT INTO versions VALUES ('hub', '24.4.6',  '',  0, '20240509', '', '', '');
 INSERT INTO versions VALUES ('hub', '24.4.5',  '',  0, '20240410', '', '', '');
 INSERT INTO versions VALUES ('hub', '24.3.2',  '',  0, '20240317', '', '', '');
@@ -310,16 +310,25 @@ INSERT INTO releases VALUES ('spock40-pg15', 4, 'spock', 'Spock', '', 'prod', ''
 INSERT INTO releases VALUES ('spock40-pg16', 4, 'spock', 'Spock', '', 'prod', '', 1, 'pgEdge Community', '', '');
 INSERT INTO releases VALUES ('spock40-pg17', 4, 'spock', 'Spock', '', 'prod', '', 1, 'pgEdge Community', '', '');
 
-INSERT INTO versions VALUES ('spock40-pg14', '4.0.130-1', 'el8, el9, arm9', 1, '20240509', 'pg14', '', '');
-INSERT INTO versions VALUES ('spock40-pg15', '4.0.130-1', 'el8, el9, arm9', 1, '20240509', 'pg15', '', '');
-INSERT INTO versions VALUES ('spock40-pg16', '4.0.130-1', 'el9, el9, arm9, osx', 1, '20240509', 'pg16', '', '');
-INSERT INTO versions VALUES ('spock40-pg17', '4.0.130-1', 'el9, el9, arm9', 1, '20240509', 'pg17', '', '');
+INSERT INTO versions VALUES ('spock40-pg14', '4.0.131-1', 'el8, el9, arm9', 1, '20240510', 'pg14', '', '');
+INSERT INTO versions VALUES ('spock40-pg15', '4.0.131-1', 'el8, el9, arm9', 1, '20240510', 'pg15', '', '');
+INSERT INTO versions VALUES ('spock40-pg16', '4.0.131-1', 'el9, el9, arm9, osx', 1, '20240510', 'pg16', '', '');
+INSERT INTO versions VALUES ('spock40-pg17', '4.0.131-1', 'el9, el9, arm9', 1, '20240510', 'pg17', '', '');
 
 ----------------------------------
 INSERT INTO projects VALUES ('lolor', 'pge', 4, 0, 'hub', 1, 'https://github.com/pgedge/lolor/tags',
   'spock', 1, 'spock.png', 'Logical Replication of Large Objects', 'https://github.com/pgedge/lolor/#spock');
-INSERT INTO releases VALUES ('lolor-pg16', 4, 'lolor', 'LgObjLOgicalRep', '', 'test', '', 1, 'pgEdge Community', '', '');
-INSERT INTO versions VALUES ('lolor-pg16', '1.0-1', 'el9, arm9, el8', 1, '20240509', 'pg16', '', '');
+INSERT INTO releases VALUES ('lolor-pg14', 4, 'lolor', 'LgObjLOgicalRep', '', 'prod', '', 1, 'pgEdge Community', '', '');
+INSERT INTO releases VALUES ('lolor-pg15', 4, 'lolor', 'LgObjLOgicalRep', '', 'prod', '', 1, 'pgEdge Community', '', '');
+INSERT INTO releases VALUES ('lolor-pg16', 4, 'lolor', 'LgObjLOgicalRep', '', 'prod', '', 1, 'pgEdge Community', '', '');
+INSERT INTO releases VALUES ('lolor-pg17', 4, 'lolor', 'LgObjLOgicalRep', '', 'prod', '', 1, 'pgEdge Community', '', '');
+
+INSERT INTO versions VALUES ('lolor-pg14', '1.1-1', 'el9, arm9, el8', 1, '20240516', 'pg14', '', '');
+INSERT INTO versions VALUES ('lolor-pg15', '1.1-1', 'el9, arm9, el8', 1, '20240516', 'pg15', '', '');
+INSERT INTO versions VALUES ('lolor-pg16', '1.1-1', 'el9, arm9, el8', 1, '20240516', 'pg16', '', '');
+INSERT INTO versions VALUES ('lolor-pg17', '1.1-1', 'el9, arm9, el8', 1, '20240516', 'pg17', '', '');
+
+INSERT INTO versions VALUES ('lolor-pg16', '1.0-1', 'el9, arm9, el8', 0, '20240509', 'pg16', '', '');
 
 ----------------------------------
 INSERT INTO projects VALUES ('pglogical', 'ext', 4, 0, 'hub', 1, 'https://github.com/2ndQuadrant/pglogical/releases',
