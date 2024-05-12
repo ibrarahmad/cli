@@ -798,9 +798,7 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ", 
         'ssh_key': s['ssh_key'],
     })
 
-    # Prepare node settings
-    port = n["port"]
-   
+    print(f"\n########### Configuring source node ###########\n")
     # Setup new node with settings
     if install_pgedge == True:
         rc = ssh_install_pgedge(cluster_name, db[0]["name"], db_settings, db[0]["username"], db[0]["password"], n)
@@ -825,24 +823,26 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ", 
     ./pgedge set BACKUP pg1-host0 " ";
     ./pgedge set BACKUP pg1-path0 {s["path"]}/pgedge/data/{stanza};
     ./pgedge set BACKUP pg1-port0 {s['port']};
-    ./pgedge backrest show-config;
     ./pgedge backrest save-config;
     '''
     util.echo_cmd(cmd, host=s["ip_address"], usr=s["os_user"], key=s["ssh_key"])
    
     if stanza_create:
+        print(f"\n# Creating stanza {stanza} \n")
         cmd0 = f"cd {s['path']}/pgedge/;"
         cmd1 = f"./pgedge backrest create-stanza {stanza};"
         util.echo_cmd(cmd0 + cmd1, host=s["ip_address"], usr=n["os_user"], key=n["ssh_key"])
     
     if backup_id == " ":
+        print(f"\n# Taking full backup \n")
         cmd0 = f"cd {s['path']}/pgedge/;"
         cmd1 = f"./pgedge backrest backup {stanza};"
         util.echo_cmd(cmd0 + cmd1, host=s["ip_address"], usr=n["os_user"], key=n["ssh_key"])
     
+    print(f"\n########### Configuring new node ###########\n")
     apply_s3_settings("pgedge-s3.conf", path = f"{n['path']}/pgedge/", host=s["ip_address"], usr=n["os_user"], key=n["ssh_key"])
     
-    commands = f'''
+    cmd = f'''
     cd {n['path']}/pgedge/;
     ./pgedge install backrest;
     ./pgedge set BACKUP stanza_count 1;
@@ -853,35 +853,45 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ", 
     ./pgedge set BACKUP pg1-host0 " ";
     ./pgedge set BACKUP pg1-path0 {s["path"]}/pgedge/data/{stanza};
     ./pgedge set BACKUP pg1-port0 {s['port']};
-    ./pgedge backrest show-config;
     ./pgedge backrest save-config;
     '''
 
-    util.echo_cmd(commands, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
 
-    commands = f'''
+    print(f"\n# Creating read replica")
+    cmd = f'''
     cd {n['path']}/pgedge/;
     ./pgedge backrest create-replica {stanza} {n["path"]}/pgedge/replica/{stanza}
     '''
-    util.echo_cmd(commands, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
     
+    print(f"\n# Stopping/removing default new cluster\n")
     cmd = f'''
     cd {s['path']}/pgedge/;
     ./pgedge stop
     '''
-    util.echo_cmd(commands, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
 
-    cmd = f'rm -rf {n["path"]}/pgedge/data/{stanza}"'
-    util.echo_cmd(commands, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    cmd = f'rm -rf {n["path"]}/pgedge/data/{stanza}'
+    util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
 
+    print(f"\n# Starting new cluster\n")
     cmd = f'mv {n["path"]}/pgedge/replica/{stanza} {n["path"]}/pgedge/data/{stanza}'
-    util.echo_cmd(commands, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    
+    pgd = f'{n["path"]}/pgedge/data/{stanza}/'
+    pgc = f'{pgd}/postgresql.conf'
+    
+    cmd = f'echo "ssl_cert_file={pgd}/server.crt" >>{pgc}'
+    util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    cmd = f'echo "ssl_key_file={pgd}/server.key" >>{pgc}'
+    util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
     
     cmd = f'''
-    cd {s['path']}/pgedge/;
+    cd {n['path']}/pgedge/;
     ./pgedge start
     '''
-    util.echo_cmd(commands, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
 
     cmd = """
     SELECT

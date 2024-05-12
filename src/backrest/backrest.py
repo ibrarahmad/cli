@@ -252,7 +252,7 @@ def _configure_replica(stanza, pg_data_dir=None):
     standby_signal = os.path.join(pg_data_dir, "standby.signal")
 
     # Connection info for the primary server should be configured prior to calling this function
-    primary_conninfo = f"host={config['stanza'][stanza]['pg1-host']} port={config['stanza'][stanza]['pg1-port']} user={config['stanza'][stanza]['pg1-user']}"
+    primary_conninfo = f"host={config['stanza'][stanza]['pg1-host0']} port={config['stanza'][stanza]['pg1-port0']} user={config['stanza'][stanza]['pg1-user0']}"
    
     # Configure postgresql.conf for replica
     changes = {
