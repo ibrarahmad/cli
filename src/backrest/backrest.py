@@ -236,7 +236,7 @@ def change_pgconf_keyval(config_path, key, value):
 
 def create_replica(stanza, backup_label=None, data_dir = ""):
     """Create a replica by restoring from a backup and configure it as a standby server."""
-    if (restore(stanza, date_dir, backup_label) == True):
+    if (restore(stanza, data_dir, backup_label) == True):
         _configure_replica(stanza, data_dir)
 
 def _configure_replica(stanza, pg_data_dir = " "):
