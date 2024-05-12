@@ -206,7 +206,7 @@ def _configure_pitr(stanza, pg_data_dir=None, recovery_target_time=None):
         pg_data_dir = os.path.join(config["main"]["restore_path"], stanza, "data")
 
     if recovery_target_time is None:
-        recovery_target_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        recovery_target_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     config_file = os.path.join(pg_data_dir, "postgresql.conf")
 

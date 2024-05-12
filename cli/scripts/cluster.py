@@ -737,13 +737,13 @@ def list_nodes(cluster_name):
 
     return nodes_list
 
-def apply_s3_settings(config_file,path, host, usr, key):
+def apply_s3_settings(config_file, path, host, usr, key):
     try:
         with open(config_file, 'r') as file:
             for line in file:
                 if line.strip() and not line.startswith('#'):  # skip empty lines and comments
                     key, value = line.strip().split('=')
-                    command = f"cd {path};./pgedge set BACKUP {key} {value}"
+                    cmd = f"cd {path};./pgedge set BACKUP {key} {value}"
                     util.echo_cmd(cmd, host, usr, key)
     except FileNotFoundError:
         util.exit_message("Error: S3 configuration file not found.")
