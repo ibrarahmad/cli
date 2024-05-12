@@ -828,20 +828,19 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ", 
     ./pgedge backrest show-config;
     ./pgedge backrest save-config;
     '''
-    sip = s['ip_address']
-    util.echo_cmd(cmd, host=sip, usr=n["os_user"], key=n["ssh_key"])
+    util.echo_cmd(cmd, host=s["ip_address"], usr=s["os_user"], key=s["ssh_key"])
    
     if stanza_create:
         cmd0 = f"cd {s['path']}/pgedge/;"
         cmd1 = f"./pgedge backrest create-stanza {stanza};"
-        util.echo_cmd(cmd0 + cmd1, host=sip, usr=n["os_user"], key=n["ssh_key"])
+        util.echo_cmd(cmd0 + cmd1, host=s["ip_address"], usr=n["os_user"], key=n["ssh_key"])
     
     if backup_id == " ":
         cmd0 = f"cd {s['path']}/pgedge/;"
         cmd1 = f"./pgedge backrest backup {stanza};"
-        util.echo_cmd(cmd0 + cmd1, host=sip, usr=n["os_user"], key=n["ssh_key"])
+        util.echo_cmd(cmd0 + cmd1, host=s["ip_address"], usr=n["os_user"], key=n["ssh_key"])
     
-    apply_s3_settings("pgedge-s3.conf", path = f"{n['path']}/pgedge/", host=sip, usr=n["os_user"], key=n["ssh_key"])
+    apply_s3_settings("pgedge-s3.conf", path = f"{n['path']}/pgedge/", host=s["ip_address"], usr=n["os_user"], key=n["ssh_key"])
     
     commands = f'''
     cd {n['path']}/pgedge/;
@@ -856,9 +855,30 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ", 
     ./pgedge set BACKUP pg1-port0 {s['port']};
     ./pgedge backrest show-config;
     ./pgedge backrest save-config;
-    ./pgedge backrest pitr {stanza} {n["path"]}/replica/{stanza};
+    '''
+
+    util.echo_cmd(commands, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+
+    commands = f'''
+    cd {n['path']}/pgedge/;
+    ./pgedge backrest create-replica {stanza} {n["path"]}/pgedge/replica/{stanza}
+    '''
+    util.echo_cmd(commands, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    
+    cmd = f'''
+    cd {s['path']}/pgedge/;
     ./pgedge stop
-    mv {n["path"]}/replica/{stanza} {n["path"]}/data/{stanza}
+    '''
+    util.echo_cmd(commands, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+
+    cmd = f'rm -rf {n["path"]}/pgedge/data/{stanza}"'
+    util.echo_cmd(commands, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+
+    cmd = f'mv {n["path"]}/pgedge/replica/{stanza} {n["path"]}/pgedge/data/{stanza}'
+    util.echo_cmd(commands, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    
+    cmd = f'''
+    cd {s['path']}/pgedge/;
     ./pgedge start
     '''
     util.echo_cmd(commands, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
