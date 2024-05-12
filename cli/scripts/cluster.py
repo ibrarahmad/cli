@@ -848,9 +848,8 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ", 
     ./pgedge set BACKUP stanza_count 1;
     ./pgedge set BACKUP repo1-path /var/lib/pgbackrest/{s["name"]};
     ./pgedge set BACKUP repo1-cipher-pass pgedge;
-    ./pgedge set BACKUP repo1-host {s["ip_address"]};
+    ./pgedge set BACKUP pg1-host0 {s["ip_address"]};
     ./pgedge set BACKUP repo1-host-user {n['os_user']};
-    ./pgedge set BACKUP pg1-host0 " ";
     ./pgedge set BACKUP pg1-path0 {s["path"]}/pgedge/data/{stanza};
     ./pgedge set BACKUP pg1-port0 {s['port']};
     ./pgedge backrest save-config;
