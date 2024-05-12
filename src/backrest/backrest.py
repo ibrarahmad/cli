@@ -158,7 +158,7 @@ def backup(stanza, type="full"):
     else:
         util.exit_message(f"Error during {type} backup")
 
-def restore(stanza, data_dir= None, backup_label=None, recovery_target_time=None):
+def restore(stanza, data_dir=None, backup_label=None, recovery_target_time=None):
     """Restore a database cluster to a specified state."""
     
     config = fetch_backup_config()
@@ -185,18 +185,15 @@ def restore(stanza, data_dir= None, backup_label=None, recovery_target_time=None
 
     result = utilx.run_command(command)
     if result["success"]:
-        util.message("Restoration completed successfully.")
+        util.message("Info: Restoration completed successfully.")
     else:
-        utilx.ereport('Error', 'Failed to restore cluster',
-                      detail='Ensure the PostgreSQL instance is not running on that restore path',
-                      context='Restore Cluster')
-        return False
+        util.exit_message(f"Error: Failed to restore backup.")
     return True
 
 def pitr(stanza, data_dir=None, recovery_target_time=None):
     """Perform point-in-time recovery on a database cluster."""
     print(f"Performing PIT recovery to {recovery_target_time}...")
-    if (restore(stanza, recovery_target_time) == True):
+    if (restore(stanza, data_dir, recovery_target_time) == True):
         _configure_pitr(stanza, data_dir, recovery_target_time)
 
 def _configure_pitr(stanza, pg_data_dir=None, recovery_target_time=None):
