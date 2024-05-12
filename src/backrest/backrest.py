@@ -158,11 +158,12 @@ def backup(stanza, type="full"):
     else:
         util.exit_message(f"Error during {type} backup")
 
-def restore(stanza, backup_label=None, recovery_target_time=None):
+def restore(stanza, backup_label=None, recovery_target_time=None, data_dir= " "):
     """Restore a database cluster to a specified state."""
     
     config = fetch_backup_config()
-    data_dir = os.path.join(config["main"]["restore_path"], stanza, "data")
+    if data_dir == " ":
+        data_dir = os.path.join(config["main"]["restore_path"], stanza, "data")
 
     print("Checking restore path directory and permissions ...")
     status = utilx.check_directory_status(data_dir)
@@ -233,15 +234,18 @@ def change_pgconf_keyval(config_path, key, value):
         if not key_found:
             file.write(f"{key} = '{value}'\n")
 
-def create_replica(stanza, backup_label=None):
+def create_replica(stanza, backup_label=None, data_dir = ""):
     """Create a replica by restoring from a backup and configure it as a standby server."""
-    if (restore(stanza, backup_label) == True):
-        _configure_replica(stanza)
+    if (restore(stanza, date_dir, backup_label) == True):
+        _configure_replica(stanza, data_dir)
 
-def _configure_replica(stanza):
+def _configure_replica(stanza, pg_data_dir = " "):
     """Configure PostgreSQL to run as a replica (standby server)."""
     config = fetch_backup_config()
-    pg_data_dir = os.path.join(config["main"]["restore_path"], stanza, "data")
+
+    if pg_data_dir == " ":
+        pg_data_dir = os.path.join(config["main"]["restore_path"], stanza, "data")
+    
     conf_file = os.path.join(pg_data_dir, "postgresql.conf")
     standby_signal = os.path.join(pg_data_dir, "standby.signal")
 
