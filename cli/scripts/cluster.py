@@ -892,6 +892,9 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ", 
     cmd = f'echo "log_directory=\'{pgd}/log\'" >> {pgc}'
     util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
     
+    cmd = f'echo "shared_preload_libraries = \'pg_stat_statements, snowflake\'">> {pgc}'
+    util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    
     cmd = f'''
     cd {n['path']}/pgedge/;
     ./pgedge config pg16 --port={n["port"]};
@@ -906,14 +909,46 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ", 
     pg_wal_lsn_diff(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn()) AS lag_bytes
     """
 
-    op = util.psql_cmd(cmd, f"{n['path']}/pgedge/pgedge", "lcdb", "pg16", host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
-    last_receive_lsn, last_replay_lsn, lag_bytes = parse_query_output(op)
-    
-    print("Replica is {lag_bytes} bytes behind")
+    lag_bytes = 1
     while True:
         if lag_bytes == 0:
             break
         time.sleep(1)
+        op = util.psql_cmd_output(cmd, f"{n['path']}/pgedge/pgedge", "lcdb", "pg16", host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+        last_receive_lsn, last_replay_lsn, lag_bytes = parse_query_output(op)
+        print(f"Replica is {lag_bytes} bytes behind")
+    
+    cmd = "SELECT pg_promote()"
+    util.psql_cmd(cmd, f"{n['path']}/pgedge/pgedge", "lcdb", "pg16", host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+
+    cmd = "DROP EXTENSION spock CASCADE"
+    util.psql_cmd(cmd, f"{n['path']}/pgedge/pgedge", "lcdb", "pg16", host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    
+    cmd = f'''
+    cd {n['path']}/pgedge/;
+    ./pgedge install spock33-pg16 -d lcdb
+    '''
+    util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+   
+    cmd = f'''
+    cd {n['path']}/pgedge/;
+    ./pgedge spock node-create {n["name"]} 'host={n["ip_address"]} user=pgedge dbname=lcdb port={n["port"]}' lcdb
+    '''
+    util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+  
+    for node in nodes:
+        cmd = f'''
+        cd {node['path']}/pgedge/;
+        ./pgedge spock sub-create sub_{node["name"]}{n["name"]} 'host={n["ip_address"]} user=pgedge dbname=lcdb port={n["port"]}' lcdb
+        '''
+        util.echo_cmd(cmd, host=node["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+
+    for node in nodes:
+        cmd = f'''
+        cd {n['path']}/pgedge/;
+        ./pgedge spock sub-create sub_{node["name"]}{n["name"]} 'host={node["ip_address"]} user=pgedge dbname=lcdb port={node["port"]}' lcdb
+        '''
+        util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
 
     cluster_data['node_groups']['aws'].append(node_data)
     write_cluster_json(cluster_name, cluster_data)
