@@ -32,7 +32,7 @@ def pgV():
 
     exit_rm_backrest("pg14, 15 or 16 must be installed")
 
-def osSys(p_input, p_display=True):
+def osSys(p_input, p_display=False):
     if p_display:
         util.message("# " + p_input)
     rc = os.system(p_input)
@@ -84,8 +84,6 @@ def configure_backup_settings():
                         util.set_value(f"BACKUP", sub_key, value)
                 else:
                     util.set_value("BACKUP", key, sub_params)
-    
-    print("Backup configuration has been set successfully.")
 
 def save_config(filename="pgbackrest.conf"):
     """Save the current pgbackrest configuration to a file in standard format."""
@@ -300,7 +298,7 @@ def main():
     setup_pgbackrest_links()
     setup_pgbackrest_conf()
     usrUsr = f"{util.get_user()}:{util.get_user()}"
-    print("pgbackrest installed successfully")
+    osSys("pgbackrest version")
 
 if __name__ == "__main__":
     main()

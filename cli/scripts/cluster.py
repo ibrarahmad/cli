@@ -848,8 +848,9 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ", 
     ./pgedge set BACKUP stanza_count 1;
     ./pgedge set BACKUP repo1-path /var/lib/pgbackrest/{s["name"]};
     ./pgedge set BACKUP repo1-cipher-pass pgedge;
-    ./pgedge set BACKUP pg1-host0 {s["ip_address"]};
+    ./pgedge set BACKUP repo1-host {s["ip_address"]};
     ./pgedge set BACKUP repo1-host-user {n['os_user']};
+    ./pgedge set BACKUP pg1-host0 " ";
     ./pgedge set BACKUP pg1-path0 {s["path"]}/pgedge/data/{stanza};
     ./pgedge set BACKUP pg1-port0 {s['port']};
     ./pgedge backrest save-config;
@@ -858,6 +859,7 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ", 
     util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
 
     print(f"\n# Creating read replica")
+    
     cmd = f'''
     cd {n['path']}/pgedge/;
     ./pgedge backrest create-replica {stanza} {n["path"]}/pgedge/replica/{stanza}
@@ -866,7 +868,7 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ", 
     
     print(f"\n# Stopping/removing default new cluster\n")
     cmd = f'''
-    cd {s['path']}/pgedge/;
+    cd {n['path']}/pgedge/;
     ./pgedge stop
     '''
     util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
@@ -875,19 +877,24 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ", 
     util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
 
     print(f"\n# Starting new cluster\n")
-    cmd = f'mv {n["path"]}/pgedge/replica/{stanza} {n["path"]}/pgedge/data/{stanza}'
+    cmd = f'mv {n["path"]}/pgedge/replica/{stanza} {n["path"]}/pgedge/data/'
     util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
     
-    pgd = f'{n["path"]}/pgedge/data/{stanza}/'
+    pgd = f'{n["path"]}/pgedge/data/{stanza}'
     pgc = f'{pgd}/postgresql.conf'
     
-    cmd = f'echo "ssl_cert_file={pgd}/server.crt" >>{pgc}'
+    cmd = f'echo "ssl_cert_file=\'{pgd}/server.crt\'" >> {pgc}'
     util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
-    cmd = f'echo "ssl_key_file={pgd}/server.key" >>{pgc}'
+
+    cmd = f'echo "ssl_key_file=\'{pgd}/server.key\'" >> {pgc}'
+    util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    
+    cmd = f'echo "log_directory=\'{pgd}/log\'" >> {pgc}'
     util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
     
     cmd = f'''
     cd {n['path']}/pgedge/;
+    ./pgedge config pg16 --port={n["port"]};
     ./pgedge start
     '''
     util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
@@ -899,10 +906,35 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ", 
     pg_wal_lsn_diff(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn()) AS lag_bytes
     """
 
-    util.psql_cmd(cmd, f"{n['path']}/pgedge/pgedge", "lcdb", "pg16", host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    op = util.psql_cmd(cmd, f"{n['path']}/pgedge/pgedge", "lcdb", "pg16", host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+    last_receive_lsn, last_replay_lsn, lag_bytes = parse_query_output(op)
     
+    print("Replica is {lag_bytes} bytes behind")
+    while True:
+        if lag_bytes == 0:
+            break
+        time.sleep(1)
+
     cluster_data['node_groups']['aws'].append(node_data)
     write_cluster_json(cluster_name, cluster_data)
+
+def parse_query_output(output):
+    # Split the output into lines
+    lines = output.split('\n')
+    
+    # Find the line with the data (usually the third line if formatted as shown)
+    data_line = lines[2].strip()
+    
+    # Split the data line into parts
+    parts = data_line.split('|')
+    
+    # Trim whitespace and assign to variables
+    last_receive_lsn = parts[0].strip()
+    last_replay_lsn = parts[1].strip()
+    lag_bytes = int(parts[2].strip())  # Convert lag_bytes to an integer
+    
+    # Return the parsed values
+    return last_receive_lsn, last_replay_lsn, lag_bytes
 
 def remove_node(cluster_name, node_name):
     """Remove node from cluster."""

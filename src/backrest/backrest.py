@@ -68,31 +68,27 @@ def show_config():
     max_key_length = max(max(len(key) for key in section) for section in config.values() if section)
 
     # Print section with adequate formatting based on the maximum key length
-    print("#" * (max_key_length + 60))
+    print("#" * (max_key_length + 40))
 
     main  = config["main"]
     print(f"[main]")
     for key, value in main.items():
-        print(f"{key.ljust(max_key_length + 20)}= {value}")
+        print(f"{key.ljust(max_key_length + 1)}= {value}")
 
-    print("\n")
-    
     glob = config["global"]
     print(f"[global]")
     for key, value in glob.items():
-        print(f"{key.ljust(max_key_length + 20)}= {value}")
+        print(f"{key.ljust(max_key_length + 1)}= {value}")
 
     stanza_count = int(config["main"].get("stanza_count", 1))
     for i in range(stanza_count):
         stanza_name = util.get_value("BACKUP", f"stanza{i}")
-        print("\n")
         print(f"[{stanza_name}]")
-        print("----")
         for key, value in config["stanza"][stanza_name].items():
             clean_key = key.replace(str(i), '') 
-            print(f"{clean_key.ljust(max_key_length + 20)}= {value}")
+            print(f"{clean_key.ljust(max_key_length + 1)}= {value}")
     
-    print("#" * (max_key_length + 60))
+    print("#" * (max_key_length + 40))
 
 
 def save_config(filename="pgbackrest.conf"):
