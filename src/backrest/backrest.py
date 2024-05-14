@@ -345,8 +345,8 @@ def create_stanza(stanza, verbose=True):
             utilx.echo_message('Error', f'Failed to create or configure stanza', level = "error")
         modify_postgresql_conf(stanza)
         modify_hba_conf()
-        comamnd = f"./pgedge restart " + pgV()
-        result = utilx.run_command(command, verbose=verbose, capture_output = not verbose)
+        command = ["./pgedge", "restart", pgV()]
+        result = utilx.run_command(command, capture_output = not verbose)
         if result["success"] == False:
             utilx.echo_message(f"Error: failed to restart postgresql cluster", level = "error")
 
