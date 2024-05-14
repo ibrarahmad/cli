@@ -34,7 +34,7 @@ def echo_message(msg, bold=False, level="info"):
     if bold == True:
         bold_start = "\033[1m"
         bold_end = "\033[0m"
-        util.messeage(bold_start + msg + bold_end, level)
+        util.message(bold_start + msg + bold_end, level)
     else:
         util.message(msg,level)
 
