@@ -581,6 +581,39 @@ def psql_cmd(cmd, nc, db, pg, host, usr, key):
     echo_cmd(nc + ' psql "' + cmd + '" ' + db, host=host, usr=usr, key=key)
 
 
+def mk_cmd(cmd, echo=True, sleep_secs=0, host="", usr="", key=""):
+    if host > "":
+        ssh_cmd = "ssh -o StrictHostKeyChecking=no -q -t "
+        if usr > "":
+            ssh_cmd = ssh_cmd + str(usr) + "@"
+
+        ssh_cmd = ssh_cmd + str(host) + " "
+
+        if key > "":
+            ssh_cmd = ssh_cmd + "-i " + str(key) + " "
+
+        cmd = cmd.replace('"', '\\"')
+
+        if os.getenv("pgeDebug", "") > "":
+            cmd = f"{cmd} --debug"
+
+        cmd = ssh_cmd + ' "' + str(cmd) + '"'
+
+    return cmd
+
+
+def psql_cmd_output(cmd, nc, db, pg, host, usr, key):
+    cmd = mk_cmd(nc + ' psql "' + cmd + '" ' + db, host=host, usr=usr, key=key)
+    result = subprocess.run(cmd, text=True, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    if result.returncode == 0:
+        print("Output:\n", result.stdout)
+    else:
+        print(result.stderr)
+
+    return result.stdout
+
+
 def print_exception(e, msg_type="error"):
     lines = str(e).splitlines()
     for line in lines:

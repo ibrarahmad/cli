@@ -132,7 +132,7 @@ def save_config(filename="pgbackrest.conf"):
 
     return filename
 
-def backup(stanza, type="full"):
+def backup(stanza, type="full", verbose=True):
     """Perform a backup of a database cluster.
 
     Args:
@@ -143,25 +143,22 @@ def backup(stanza, type="full"):
     config = fetch_backup_config()
     valid_types = ["full", "diff", "incr"]
     if type not in valid_types:
-        util.message(f"Error: '{type}' is not a valid backup type. Allowed types are: {', '.join(valid_types)}.")
+        utilx.echo_message(f"Error: '{type}' is not a valid backup type.\n allowed types are: {', '.join(valid_types)}.", level = "error")
         return
 
     command = ["pgbackrest", "--stanza", stanza, "--type", type, "backup"]
 
-    result = utilx.run_command(command)
-    if result["success"]:
-        util.message(f"Backup completed successfully for stanza '{stanza}' with type '{type}'.")
-    else:
-        util.exit_message(f"Error during {type} backup")
+    result = utilx.run_command(command, capture_output = not verbose)
+    if result["success"] == False:
+        utilx.echo_message(f"Error: failed to take {type} backup", level = "error")
 
-def restore(stanza, data_dir=None, backup_label=None, recovery_target_time=None):
+def restore(stanza, data_dir=None, backup_label=None, recovery_target_time=None, verbose=True):
     """Restore a database cluster to a specified state."""
     
     config = fetch_backup_config()
     if data_dir == None:
         data_dir = os.path.join(config["main"]["restore_path"], stanza, "data")
 
-    print("Checking restore path directory and permissions ...")
     status = utilx.check_directory_status(data_dir)
     if status['exists'] and not status['writable']:
         util.message(status['message'])
@@ -179,17 +176,14 @@ def restore(stanza, data_dir=None, backup_label=None, recovery_target_time=None)
         command.append("--type=time")
         command.append(f"--target={recovery_target_time}")
 
-    result = utilx.run_command(command)
-    if result["success"]:
-        util.message("Info: Restoration completed successfully.")
-    else:
-        util.exit_message(f"Error: Failed to restore backup.")
+    result = utilx.run_command(command, capture_output = not verbose)
+    if result["success"] == False:
+        utilx.echo_message(f"Error: failed to restore backup", level = "error")
     return True
 
-def pitr(stanza, data_dir=None, recovery_target_time=None):
+def pitr(stanza, data_dir=None, recovery_target_time=None, verbose=True):
     """Perform point-in-time recovery on a database cluster."""
-    print(f"Performing PIT recovery to {recovery_target_time}...")
-    if (restore(stanza, data_dir, recovery_target_time) == True):
+    if (restore(stanza, data_dir, recovery_target_time) == True, verbose):
         _configure_pitr(stanza, data_dir, recovery_target_time)
 
 def _configure_pitr(stanza, pg_data_dir=None, recovery_target_time=None):
@@ -232,12 +226,12 @@ def change_pgconf_keyval(config_path, key, value):
         if not key_found:
             file.write(f"{key} = '{value}'\n")
 
-def create_replica(stanza, data_dir=None, backup_label=None):
+def create_replica(stanza, data_dir=None, backup_label=None, verbose=True):
     """Create a replica by restoring from a backup and configure it as a standby server."""
-    if (restore(stanza, data_dir, backup_label) == True):
-        _configure_replica(stanza, data_dir)
+    if (restore(stanza, data_dir, backup_label, verbose) == True):
+        _configure_replica(stanza, data_dir, verbose)
 
-def _configure_replica(stanza, pg_data_dir=None):
+def _configure_replica(stanza, pg_data_dir=None, verbose=True):
     """Configure PostgreSQL to run as a replica (standby server)."""
     config = fetch_backup_config()
 
@@ -265,8 +259,6 @@ def _configure_replica(stanza, pg_data_dir=None):
     
     # Create an empty standby.signal file to trigger standby mode
     open(standby_signal, 'a').close()
-
-    util.message("Configuration for replica has been updated. Ensure the PostgreSQL instance is restarted.")
 
 def list_backups():
     """List all available backups using pgBackRest."""
@@ -339,27 +331,24 @@ def validate_stanza_config(stanza_name, config):
         raise ValueError(f"Missing configuration parameters for stanza {stanza_name}: {', '.join(missing_params)}")
     return True
 
-def create_stanza(stanza):
+def create_stanza(stanza, verbose=True):
     """
     Create the required stanza for pgBackRest and configure PostgreSQL settings after ensuring all values are properly set.
     """
     # Fetch the current configuration
     config = fetch_backup_config()
 
-    # Validate the configuration for the given stanza
-    try:
-        if validate_stanza_config(stanza, config):
-            command = ["pgbackrest", "--stanza", stanza, "stanza-create"]
-            utilx.run_command(command)
-            modify_postgresql_conf(stanza)
-            modify_hba_conf()
-            cmd = f"./pgedge restart " + pgV()
-            osSys(cmd)
-
-    except Exception as e:
-        utilx.ereport('Error', f'Failed to create or configure stanza {stanza}', detail=str(e))
-        return
-
+    if validate_stanza_config(stanza, config):
+        command = ["pgbackrest", "--stanza", stanza, "stanza-create"]
+        result = utilx.run_command(command, capture_output = not verbose)
+        if result["success"] == False:
+            utilx.echo_message('Error', f'Failed to create or configure stanza', level = "error")
+        modify_postgresql_conf(stanza)
+        modify_hba_conf()
+        comamnd = f"./pgedge restart " + pgV()
+        result = utilx.run_command(command, verbose=verbose, capture_output = not verbose)
+        if result["success"] == False:
+            utilx.echo_message(f"Error: failed to restart postgresql cluster", level = "error")
 
 if __name__ == "__main__":
     fire.Fire({
