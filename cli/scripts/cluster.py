@@ -868,7 +868,7 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ", 
     
     cmd = f'''
     cd {n['path']}/pgedge/;
-    ./pgedge backrest create-replica {stanza} {n["path"]}/pgedge/replica/{stanza}
+    ./pgedge backrest create-replica --stanza={stanza} --data_dir={n["path"]}/pgedge/replica/{stanza} --verbose=True
     '''
     utilx.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
     

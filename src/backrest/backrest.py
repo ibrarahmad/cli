@@ -183,7 +183,7 @@ def restore(stanza, data_dir=None, backup_label=None, recovery_target_time=None,
 
 def pitr(stanza, data_dir=None, recovery_target_time=None, verbose=True):
     """Perform point-in-time recovery on a database cluster."""
-    if (restore(stanza, data_dir, recovery_target_time) == True, verbose):
+    if restore(stanza, data_dir=None, backup_label = None, recovery_target_time=recovery_target_time, verbose=verbose) == True:
         _configure_pitr(stanza, data_dir, recovery_target_time)
 
 def _configure_pitr(stanza, pg_data_dir=None, recovery_target_time=None):
@@ -228,7 +228,7 @@ def change_pgconf_keyval(config_path, key, value):
 
 def create_replica(stanza, data_dir=None, backup_label=None, verbose=True):
     """Create a replica by restoring from a backup and configure it as a standby server."""
-    if (restore(stanza, data_dir, backup_label, verbose) == True):
+    if restore(stanza, data_dir=None, backup_label = None, recovery_target_time=None, verbose=verbose) == True:
         _configure_replica(stanza, data_dir, verbose)
 
 def _configure_replica(stanza, pg_data_dir=None, verbose=True):
