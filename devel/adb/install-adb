@@ -1,0 +1,52 @@
+#/bin/bash
+set -x 
+
+if [ `id -u` -ne 0 ]; then
+  echo "ERROR: Please run this script as root or using sudo!"
+  exit 1
+fi
+
+
+###################################################################
+installAPT () {
+  apt install gpg docker.io
+  curl https://us-apt.pkg.dev/doc/repo-signing-key.gpg | sudo apt-key add -
+  apt update
+  echo "deb https://us-apt.pkg.dev/projects/alloydb-omni alloydb-omni-apt main" \
+    | tee -a /etc/apt/sources.list.d/artifact-registry.list
+  apt update
+  apt-get -y install alloydb-cli
+}
+
+
+####################################################################
+installYUM () {
+  sudo tee -a /etc/yum.repos.d/artifact-registry.repo << EOF
+[alloydb-omni-yum]
+name=alloydb-omni-yum
+baseurl=https://us-yum.pkg.dev/projects/alloydb-omni/alloydb-omni-yum
+enabled=1
+repo_gpgcheck=0
+gpgcheck=0
+EOF
+  sudo yum makecache
+  sudo yum install alloydb-cli -y
+}
+
+
+################ MAINLINE ##########################################
+yum --version >/dev/null 2>&1
+rc=$?
+if [ "$rc" == "0" ]; then
+  installYUM
+else
+  installAPT
+fi
+
+sudo alloydb database-server install 
+
+## Notes:   run as root succesfully on debian 12 amd
+
+## docker ps
+## docker exec -it pg-service psql -h localhost -U postgres
+## docker exec -it pg-service bash

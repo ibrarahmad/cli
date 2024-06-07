@@ -40,7 +40,7 @@ def remove_comp(p_comp):
     if meta.is_extension(p_comp):
         util.run_script(meta.get_extension_parent(p_comp), script_name, "")
         manifest_file_name = p_comp + ".manifest"
-        manifest_file_path = os.path.join(MY_HOME, "conf", manifest_file_name)
+        manifest_file_path = os.path.join(MY_HOME, "data", "conf", manifest_file_name)
         util.delete_extension_files(manifest_file_path)
         util.message("deleted manifest file : " + manifest_file_name, "info", isJSON)
         os.remove(manifest_file_path)
@@ -55,9 +55,29 @@ def run_cmd(p_cmd, p_comp=None):
     return rc
 
 
-def list():
+def list(components=False, aliases=False):
     """Display available/installed components"""
-    meta.get_list(isJSON, "all")
+
+    util.message(f"um.list({components})", "debug")
+
+    if components is True:
+        list_components()
+    elif aliases is True:
+        list_aliases()
+    else:
+        meta.get_list(isJSON, "all")
+
+
+def list_components():
+    lc = meta.list_components()
+    for c in lc:
+        print(c)
+
+
+def list_aliases():
+    la = meta.list_aliases()
+    for a in la:
+        print(a)
 
 
 def update():
@@ -65,10 +85,18 @@ def update():
     run_cmd("update")
 
 
-def install(component):
+def install(component, active=True):
     """Install a component"""
 
-    run_cmd("install", component)
+    if active not in (True, False):
+        util.exit_message("'active' parm must be True or False")
+    
+    cmd = "install"
+    if active is False:
+        cmd = "install --no-preload"
+
+    util.message(f"um.install({cmd} {component})", "debug")
+    run_cmd(cmd, component)
 
 
 def remove(component):
@@ -129,7 +157,7 @@ def downgrade(component):
 
 def clean():
     """Delete downloaded component files from local cache"""
-    conf_cache = util.MY_HOME + os.sep + "conf" + os.sep + "cache" + os.sep + "*"
+    conf_cache = util.MY_HOME + os.sep + "data" + os.sep + "conf" + os.sep + "cache" + os.sep + "*"
     files = glob.glob(conf_cache)
     kount = 0
     for f in files:

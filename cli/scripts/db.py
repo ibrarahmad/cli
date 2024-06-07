@@ -14,7 +14,7 @@ import fire
 
 def create(db=None, User=None, Passwd=None, pg=None, spock=None):
     """
-    Create a pg db with spock installed into it.
+    Create a pg db with spock components installed into it.
 
 
      Usage:
@@ -23,17 +23,11 @@ def create(db=None, User=None, Passwd=None, pg=None, spock=None):
 
     """
 
-    if db is None:
-        db = os.getenv("pgName", None)
-
-    if User is None:
-        User = os.getenv("pgeUser", None)
+    util.message(f"db.create(db={db}, User={User}, Passwd={Passwd}, pg={pg}, spock={spock})", "debug")
 
     # one way or another, the user that creates the db will have a password
     if Passwd is None:
-        Passwd = os.getenv("pgePasswd", None)
-        if Passwd is None:
-            Passwd = util.get_random_password()
+        Passwd = util.get_random_password()
 
     if pg is None:
         pg_v = util.get_pg_v(pg)
@@ -66,7 +60,10 @@ def create(db=None, User=None, Passwd=None, pg=None, spock=None):
     util.echo_cmd(f"{nc} install snowflake-pg{pg} --no-restart")
 
     if spock is None:
-       major_ver = util.DEFAULT_SPOCK
+       if pg == "17":
+           major_ver = util.DEFAULT_SPOCK_17
+       else:
+           major_ver = util.DEFAULT_SPOCK
        ver = ""
     else:
        major_ver = f"{str(spock)[:1]}{str(spock)[2:3:1]}"
@@ -84,12 +81,6 @@ def create(db=None, User=None, Passwd=None, pg=None, spock=None):
 
     cmd = "CREATE EXTENSION snowflake"
     rc4 = util.echo_cmd(ncb + '"psql -q -c \\"' + cmd + '\\" ' + str(db) + '"')
-
-    rm_data = os.getenv("isRM_DATA", "False")
-    if rm_data == "True":
-        util.message("Removing data directory at your request")
-        util.echo_cmd(nc + "stop")
-        util.echo_cmd("rm -r data")
 
     rcs = rc1 + rc2 + rc3 + rc4
     if rcs == 0:
@@ -169,12 +160,39 @@ def test_io():
 
 
 
+def set_readonly(readonly="off", pg=None):
+    """Turn PG read-only mode 'on' or 'off'."""
+
+    if readonly not in ("on", "off"):
+        util.exit_message("  readonly flag must be 'off' or 'on'")
+
+    pg_v = util.get_pg_v(pg)
+
+    try:
+        con = util.get_pg_connection(pg_v, "postgres", util.get_user())
+        cur = con.cursor(row_factory=psycopg.rows.dict_row)
+
+        util.change_pgconf_keyval(pg_v, "default_transaction_read_only", readonly, True)
+
+        util.message("reloading postgresql.conf")
+        cur.execute("SELECT pg_reload_conf()")
+        cur.close()
+        con.close()
+
+    except Exception as e:
+        util.exit_exception(e)
+
+    sys.exit(0)
+
+
+
 if __name__ == "__main__":
     fire.Fire(
         {
             "create": create,
             "guc-set": guc_set,
             "guc-show": guc_show,
+            "set-readonly": set_readonly,
             "test-io": test_io
         }
     )

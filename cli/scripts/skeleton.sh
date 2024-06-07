@@ -11,9 +11,9 @@ fi
 function install_pgedge {
   ./pgedge install $pgV; 
   ./pgedge start $pgV -y -d demo;
-  ./pgedge install spock32-$pgV       -d demo
+  ./pgedge install spock              -d demo
   ./pgedge install snowflake-$pgV     -d demo
-  ./pgedge install readonly-$pgV      -d demo
+  ./pgedge install lolor-$pgV         -d demo
 }
 
 
@@ -35,11 +35,11 @@ function test_common_exts {
   ./pgedge install hintplan-$pgV      -d demo
   ./pgedge install timescaledb-$pgV   -d demo
 
-  #./pgedge install plv8-$pgV          -d demo
+  ./pgedge install plv8-$pgV          -d demo
+
   #./pgedge install pljava-$pgV        -d demo
 
   ## extensions that dont always play nice with others
-  # ./pgedge install pglogical-$pgV     -d demo
   # ./pgedge install plprofiler-$pgV
   # ./pgedge install pldebugger-$pgV    -d demo
   # ./pgedge install citus-$pgV         -d demo

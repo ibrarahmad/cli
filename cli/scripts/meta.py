@@ -11,15 +11,16 @@ import datetime
 
 def get_extension_meta(component):
     data = []
-    sql = f"SELECT extension_name, default_conf FROM extensions WHERE component = '{component}'"
+    sql = "SELECT extension_name, is_preload, preload_name, default_conf\n" + \
+         f"  FROM extensions WHERE component = '{component}'"
     try:
         c = con.cursor()
         c.execute(sql)
         data = c.fetchone()
         if data:
-            return str(data[0]), str(data[1])
+            return str(data[0]), str(data[1]), str(data[2]), str(data[3])
         else:
-            return None, None
+            return None, None, None, None
     except Exception as e:
         fatal_error(e, sql, "get_extension_meta")
 
@@ -47,6 +48,27 @@ def get_installed_pg():
         fatal_error(e, sql, "get_installed_pg")
 
     return data
+
+'''
+Accepts a connection object and returns the version of spock installed
+
+@param: conn - connection object
+@return: float - version of spock installed
+
+'''
+def get_spock_version(conn):
+    data = []
+    sql = "SELECT spock.spock_version();"
+    try:
+        c = conn.cursor()
+        c.execute(sql)
+        data = c.fetchone()
+        if data:
+            return float(data[0])
+    except Exception as e:
+        fatal_error(e, sql, "get_spock_version()")
+
+    return 0.0
 
 
 def get_stage(p_comp):
@@ -316,24 +338,52 @@ def is_any_autostart():
 
 
 def is_extension(ext_comp):
+    ## util.message(f"meta.is_extension({ext_comp})", "debug")
     try:
         c = con.cursor()
-        sql = (
-            "SELECT r.component, r.project, p.category \n"
-            + "  FROM projects p, releases r \n"
-            + " WHERE r.component = '"
-            + ext_comp
-            + "' \n"
-            + "   AND r.project = p.project \n"
-            + "   AND p.is_extension = 1"
-        )
+        sql = f"SELECT count(*) FROM versions WHERE component = '{ext_comp}' AND parent > ''"
         c.execute(sql)
         data = c.fetchone()
-        if not data:
+        if data[0] == 0:
+            ## util.message("  - FALSE", "debug")
             return False
     except Exception as e:
         fatal_error(e, sql, "meta.is_extension()")
+
+    ## util.message("  - TRUE", "debug")
     return True
+
+
+def list_components():
+    r_comp = []
+    try:
+        c = con.cursor()
+        cols = "component, project, version, platform, port, status, install_dt, autostart"
+        sql = f"SELECT {cols} FROM components"
+        c.execute(sql)
+        t_comp = c.fetchall()
+        for c in t_comp:
+            r_comp.append([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]])
+    except Exception as e:
+        fatal_error(e, sql, "meta.list_components()")
+
+    return r_comp
+
+
+def list_aliases():
+    r_al = []
+    try:
+        c = con.cursor()
+        cols = "project, aliases"
+        sql = f"SELECT {cols} FROM projects WHERE aliases > '' ORDER BY 1"
+        c.execute(sql)
+        t_al = c.fetchall()
+        for a in t_al:
+            r_al.append([a[0], a[1]])
+    except Exception as e:
+        fatal_error(e, sql, "meta.list_aliases()")
+
+    return r_al
 
 
 def get_available_component_list():
@@ -513,8 +563,6 @@ def get_list(p_isJSON, p_comp=None, p_return=False):
     my_in = "'prod'"
     if util.isTEST:
         my_in = my_in + ", 'test'"
-    if util.isENT:
-        my_in = my_in + ", 'ent'"
 
     exclude_comp = exclude_comp + f" AND r.stage in ({my_in})"
 

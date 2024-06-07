@@ -13,8 +13,8 @@ script=`basename "$this"`
 my_home=`cd "$config_bin"; pwd`
 
 export MY_HOME="$my_home"
-export MY_LOGS=$MY_HOME/logs/cli_log.out
-export MY_LITE=$MY_HOME/conf/db_local.db
+export MY_LOGS=$MY_HOME/data/logs/cli_log.out
+export MY_LITE=$MY_HOME/data/conf/db_local.db
 export MY_CMD=pgedge
 
 cd "$MY_HOME"
@@ -50,6 +50,14 @@ elif [ -d "$LIB/ubu22-arm" ]; then
   lib="$LIB/ubu22-arm"
 elif [ -d "$LIB/ubu22-amd" ]; then
   lib="$LIB/ubu22-amd"
+elif [ -d "$LIB/ubu24-arm" ]; then
+  lib="$LIB/ubu24-arm"
+elif [ -d "$LIB/ubu24-amd" ]; then
+  lib="$LIB/ubu24-amd"
+elif [ -d "$LIB/deb12-arm" ]; then
+  lib="$LIB/deb12-arm"
+elif [ -d "$LIB/deb12-amd" ]; then
+  lib="$LIB/deb12-amd"
 fi
 
 if [ ! "$lib" == "None" ]; then
@@ -58,6 +66,8 @@ if [ ! "$lib" == "None" ]; then
     export PATH=$lib/bin:$PATH
   fi
 fi
+
+array[3]=$MY_HOME/hub/scripts/contrib
 
 export PYTHONPATH=$(printf "%s:" ${array[@]})
 for var in "$@"
@@ -80,6 +90,7 @@ if [ $v == "3.9" ] || [ $v == "3.10" ] || [ $v == "3.11" ] || [ $v == "3.12" ]; 
 elif [ -f /usr/bin/python3.9 ]; then
   export PYTHON=/usr/bin/python3.9
 else
+  # try it anyway
   export PYTHON=python3
 fi
 

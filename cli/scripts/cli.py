@@ -1,7 +1,6 @@
 
 #  Copyright 2022-2024 PGEDGE  All rights reserved. #
 
-
 import sys, os
 
 if sys.version_info < (3, 9):
@@ -15,6 +14,11 @@ if not IS_64BITS:
     print("ERROR: This is a 32bit machine and we are 64bit.")
     sys.exit(1)
 
+if os.path.isdir("conf"):
+    print("WARNING: moving 'conf' dir to `data/conf`")
+    os.system(f"mv -f conf  data/.")
+    os.system("rm -f ctl nc nodectl")
+
 MY_HOME = os.getenv("MY_HOME", None)
 MY_CMD = os.getenv("MY_CMD", None)
 MY_LITE = os.getenv("MY_LITE", None)
@@ -22,7 +26,7 @@ if not (MY_HOME and MY_CMD and MY_LITE):
     print("Required Envs not set (MY_HOME, MY_CMD, MY_LITE)")
     sys.exit(1)
 
-import time, datetime, platform, tarfile, sqlite3, time
+import time, datetime, platform, tarfile, sqlite3
 import json, glob, re, io, traceback, logging, logging.handlers
 from shutil import copy2
 from semantic_version import Version
@@ -41,9 +45,9 @@ if os.path.exists(platform_lib_path):
 import util, api, startup, meta
 my_logger=util.my_logger
 
-my_conf = os.path.join(util.MY_HOME, "conf")
+my_conf = os.path.join(util.MY_HOME, "data", "conf")
 if not util.is_writable(my_conf):
-    rc = os.system(f"sudo mkdir -P {my_conf}")
+    rc = os.system(f"sudo mkdir -p {my_conf}")
     if rc == 0:
         pass
     else:
@@ -66,10 +70,10 @@ fire_list = [
     "cloud",
     "db",
     "app",
-    "vm",
-    "setup",
-    "localhost"
+    "setup"
 ]
+
+fire_contrib = ["node", "localhost"]
 
 native_list = ["backrest", "ansible", "patroni", "etcd"]
 
@@ -115,6 +119,7 @@ mode_list = (
         "remove",
         "--pg",
         "--start",
+        "--disabled",
         "--no-restart",
         "--no-preload",
         "--help",
@@ -131,6 +136,7 @@ mode_list = (
         "--debug2",
     ]
     + fire_list
+    + fire_contrib
     + native_list
     + mode_list_advanced
 )
@@ -150,6 +156,7 @@ ignore_comp_list = (
         "change-pgconf",
     ]
     + fire_list
+    + fire_contrib
     + native_list
 )
 
@@ -158,6 +165,7 @@ no_log_commands = ["status", "info", "list", "top", "get", "metrics-check"]
 lock_commands = (
     ["install", "remove", "update", "upgrade", "downgrade", "service"]
     + fire_list
+    + fire_contrib
     + native_list
 )
 
@@ -166,20 +174,24 @@ installed_comp_list = []
 global check_sum_match
 check_sum_match = True
 
-backup_dir = os.path.join(util.MY_HOME, "conf", "backup")
+backup_dir = os.path.join(util.MY_HOME, "data", "conf", "backup")
 backup_target_dir = os.path.join(backup_dir, time.strftime("%Y%m%d%H%M"))
 
-pid_file = os.path.join(util.MY_HOME, "conf", "cli.pid")
+pid_file = os.path.join(util.MY_HOME, "data", "conf", "cli.pid")
 
 isJSON = util.isJSON
 
 def fire_away(p_mode, p_args):
+    util.message(f"cli.fire_away({p_mode}, {p_args})", "debug")
     py_file = f"{p_mode}.py"
     py3 = sys.executable
     if os.path.exists(py_file):
         cmd = f"{py3} {py_file}"
     else:
-        cmd = f"{py3} hub/scripts/{py_file}"
+        if p_mode in fire_contrib:
+            cmd = f"{py3} hub/scripts/contrib/{py_file}"
+        else:
+            cmd = f"{py3} hub/scripts/{py_file}"
 
     for n in range(2, len(p_args)):
         parm = p_args[n]
@@ -203,37 +215,6 @@ def get_next_arg(p_arg):
         i += 1
 
     return next_arg
-
-
-# run external scripts #######################################
-def run_script(componentName, scriptName, scriptParm):
-    if componentName not in installed_comp_list:
-        return
-
-    componentDir = componentName
-    if meta.is_extension(componentName):
-        componentDir = componentName[-4:]
-
-    cmd = ""
-    scriptFile = os.path.join(MY_HOME, componentDir, scriptName)
-
-    if os.path.isfile(scriptFile):
-        cmd = "bash"
-    else:
-        cmd = sys.executable + " -u"
-        scriptFile = scriptFile + ".py"
-
-    rc = 0
-    compState = util.get_comp_state(componentName)
-    if compState == "Enabled" and os.path.isfile(scriptFile):
-        run = cmd + " " + scriptFile + " " + scriptParm
-        rc = os.system(run)
-
-    if rc != 0:
-        print("Error running " + scriptName)
-        exit_cleanly(1)
-
-    return
 
 
 # Get Dependency List #########################################
@@ -283,12 +264,12 @@ def get_depend_list(p_list, p_display=True):
 
 # Check if component is already downloaded
 def is_downloaded(p_comp, component_name=None):
-    conf_cache = "conf" + os.sep + "cache"
+    conf_cache = "data" + os.sep + "conf" + os.sep + "cache"
     zip_file = p_comp + ".tgz"
     checksum_file = zip_file + ".sha512"
 
     if os.path.isfile(conf_cache + os.sep + checksum_file):
-        if validate_checksum(
+        if util.validate_checksum(
             conf_cache + os.sep + zip_file, conf_cache + os.sep + checksum_file
         ):
             return True
@@ -299,7 +280,7 @@ def is_downloaded(p_comp, component_name=None):
     ):
         return False
 
-    return validate_checksum(
+    return util.validate_checksum(
         conf_cache + os.sep + zip_file, conf_cache + os.sep + checksum_file
     )
 
@@ -336,6 +317,7 @@ class ProgressTarExtract(io.FileIO):
 
 # Install Component ######################################################
 def install_comp(p_app, p_ver=0, p_rver=None, p_re_install=False):
+    util.message(f"install_comp(p_app={p_app}, p_ver={p_ver}, p_rver={p_rver}, p_re_install={p_re_install})", "debug")
     if p_ver is None:
         p_ver = 0
     if p_rver:
@@ -375,7 +357,7 @@ def install_comp(p_app, p_ver=0, p_rver=None, p_re_install=False):
             exit_cleanly(1)
 
         base_name = p_app + "-" + ver
-        conf_cache = "conf" + os.sep + "cache"
+        conf_cache = "data" + os.sep + "conf" + os.sep + "cache"
         file = base_name + ".tgz"
         zip_file = conf_cache + os.sep + file
         json_dict = {}
@@ -398,7 +380,7 @@ def install_comp(p_app, p_ver=0, p_rver=None, p_re_install=False):
             exit_cleanly(1)
 
         util.message("\nUnpacking " + file)
-        full_file = "conf" + os.sep + "cache" + os.sep + file
+        full_file = conf_cache + os.sep + file
 
         if platform.system() in ("Linux", "Darwin"):
             return util.posix_unpack(full_file)
@@ -446,17 +428,7 @@ def install_comp(p_app, p_ver=0, p_rver=None, p_re_install=False):
             util.message("Unpack complete")
 
     else:
-        msg = p_app + " is already installed."
-        my_logger.info(msg)
-        if isJSON:
-            json_dict = {}
-            json_dict["state"] = "install"
-            json_dict["component"] = p_app
-            json_dict["status"] = "complete"
-            json_dict["msg"] = msg
-            msg = json.dumps([json_dict])
-        print(msg)
-        return 1
+        util.exit_message(f"{p_app} is already installed.")
 
 
 def downgrade_component(p_comp):
@@ -518,7 +490,7 @@ def upgrade_component(p_comp):
         server_running = util.is_socket_busy(int(server_port), p_comp)
 
     if server_running:
-        run_script(p_comp, "stop-" + p_comp, "stop")
+        util.run_script(p_comp, "stop-" + p_comp, "stop")
 
     if p_comp == "hub":
         msg = "updating from v" + present_version + "  to  v" + update_version
@@ -564,7 +536,7 @@ def upgrade_component(p_comp):
                 )
             if d_comp_server_running:
                 my_logger.info("Stopping the " + d_comp + " to upgrade the " + p_comp)
-                run_script(d_comp, "stop-" + d_comp, "stop")
+                util.run_script(d_comp, "stop-" + d_comp, "stop")
                 components_stopped.append(d_comp)
 
     rc = unpack_comp(p_comp, present_version, update_version)
@@ -573,7 +545,7 @@ def upgrade_component(p_comp):
     os.environ[p_comp + "_update_version"] = update_version
     if rc == 0:
         meta.update_component_version(p_comp, update_version)
-        run_script(p_comp, "update-" + p_comp, "update")
+        util.run_script(p_comp, "update-" + p_comp, "update")
         if isJSON:
             msg = (
                 "updated "
@@ -593,11 +565,11 @@ def upgrade_component(p_comp):
             )
 
     if server_running:
-        run_script(p_comp, "start-" + p_comp, "start")
+        util.run_script(p_comp, "start-" + p_comp, "start")
 
     for dc in components_stopped:
         my_logger.info("Starting the " + dc + " after upgrading the " + p_comp)
-        run_script(dc, "start-" + dc, "start")
+        util.run_script(dc, "start-" + dc, "start")
 
     return 0
 
@@ -697,7 +669,7 @@ def unpack_comp(p_app, p_old_ver, p_new_ver):
                     f"{os.path.join(MY_HOME, parent)}  {os.path.join(backup_target_dir, parent)}"
                 )
             manifest_file_name = p_app + ".manifest"
-            manifest_file_path = os.path.join(MY_HOME, "conf", manifest_file_name)
+            manifest_file_path = os.path.join(MY_HOME, "data", "conf", manifest_file_name)
             my_logger.info("backing up current manifest file " + manifest_file_path)
             copy2(manifest_file_path, backup_target_dir)
             my_logger.info("deleting existing extension files from " + parent)
@@ -813,7 +785,7 @@ def update_component_state(p_app, p_mode, p_ver=None):
         return
 
     if p_mode == "disable" or p_mode == "remove":
-        run_script(p_app, "stop-" + p_app, "kill")
+        util.run_script(p_app, "stop-" + p_app, "kill")
 
     try:
         c = connL.cursor()
@@ -860,67 +832,9 @@ def update_component_state(p_app, p_mode, p_ver=None):
     return
 
 
-def retrieve_remote():
-    versions_sql = "versions.sql"
-    util.set_value("GLOBAL", "VERSIONS", versions_sql)
-
-    if not os.path.exists(backup_dir):
-        os.mkdir(backup_dir)
-    if not os.path.exists(backup_target_dir):
-        os.mkdir(backup_target_dir)
-    recent_version_sql = os.path.join(MY_HOME, "conf", versions_sql)
-    recent_local_db = os.path.join(MY_HOME, "conf", "db_local.db")
-    if os.path.exists(recent_local_db):
-        copy2(recent_local_db, backup_target_dir)
-    if os.path.exists(recent_version_sql):
-        copy2(recent_version_sql, backup_target_dir)
-    remote_file = versions_sql
-    msg = (
-        "Retrieving the remote list of latest component versions ("
-        + remote_file
-        + ") ..."
-    )
-    my_logger.info(msg)
-    if isJSON:
-        print('[{"status":"wip","msg":"' + msg + '"}]')
-        msg = ""
-    else:
-        if not isSILENT:
-            print(msg)
-    if not util.http_get_file(isJSON, remote_file, REPO, "conf", False, msg):
-        exit_cleanly(1)
-    msg = ""
-
-    sql_file = "conf" + os.sep + remote_file
-
-    if not util.http_get_file(
-        isJSON, remote_file + ".sha512", REPO, "conf", False, msg
-    ):
-        exit_cleanly(1)
-    msg = "Validating checksum file..."
-    my_logger.info(msg)
-    if isJSON:
-        print('[{"status":"wip","msg":"' + msg + '"}]')
-    else:
-        if not isSILENT:
-            print(msg)
-    if not validate_checksum(sql_file, sql_file + ".sha512"):
-        exit_cleanly(1)
-
-    msg = "Updating local repository with remote entries..."
-    my_logger.info(msg)
-    if isJSON:
-        print('[{"status":"wip","msg":"' + msg + '"}]')
-    else:
-        if not isSILENT:
-            print(msg)
-    if not util.process_sql_file(sql_file, isJSON):
-        exit_cleanly(1)
-
-
 ## Download tarball component and verify against checksum ###############
 def retrieve_comp(p_base_name, component_name=None):
-    conf_cache = "conf" + os.sep + "cache"
+    conf_cache = "data" + os.sep + "conf" + os.sep + "cache"
     zip_file = p_base_name + ".tgz"
     checksum_file = zip_file + ".sha512"
     global download_count
@@ -942,22 +856,9 @@ def retrieve_comp(p_base_name, component_name=None):
     ):
         return False
 
-    return validate_checksum(
+    return util.validate_checksum(
         conf_cache + os.sep + zip_file, conf_cache + os.sep + checksum_file
     )
-
-
-def validate_checksum(p_file_name, p_checksum_file_name):
-    checksum_from_file = util.get_file_checksum(p_file_name)
-    checksum_from_remote_file = util.read_file_string(p_checksum_file_name).rstrip()
-    checksum_from_remote = checksum_from_remote_file.split()[0]
-    global check_sum_match
-    check_sum_match = False
-    if checksum_from_remote == checksum_from_file:
-        check_sum_match = True
-        return check_sum_match
-    util.print_error("SHA512 CheckSum Mismatch")
-    return check_sum_match
 
 
 def get_comp_display():
@@ -1222,15 +1123,17 @@ if "--pg" in args:
 if "-U" in args:
     usr = get_next_arg("-U")
     if usr > "":
-        args.remove("-U")
-        args.remove(usr)
+        if (str(args[1]) not in fire_list) and (str(args[1]) not in fire_contrib):
+            args.remove("-U")
+            args.remove(usr)
         os.environ["pgeUser"] = usr
 
 if "-P" in args:
     passwd = get_next_arg("-P")
     if passwd > "":
-        args.remove("-P")
-        args.remove(passwd)
+        if (str(args[1]) not in fire_list) and (str(args[1]) not in fire_contrib):
+            args.remove("-P")
+            args.remove(passwd)
         os.environ["pgePasswd"] = passwd
 
 if "-p" in args:
@@ -1261,35 +1164,28 @@ while i < len(args):
         if i < (len(args) - 1):
             PGNAME = args[i + 1]
             os.environ["pgName"] = PGNAME
-            args.remove(PGNAME)
-            args.remove("-d")
+            if str(args[1]) not in ((fire_list) or (fire_contrib)):
+                args.remove(PGNAME)
+                args.remove("-d")
             break
     i += 1
-
-
-if "--ent" in args:
-    isENT = True
-    os.environ["isEnt"] = "True"
-    args.remove("--ent")
 
 if "--test" in args:
     util.isTEST = True
     os.environ["isTest"] = "True"
     args.remove("--test")
 
-if "--tent" in args:
-    util.isTEST = True
-    util.isENT = True
-    os.environ["isEnt"] = "True"
-    os.environ["isTest"] = "True"
-    args.remove("--tent")
-
-
 isSTART = False
 if "--start" in args:
     isSTART = True
     os.environ["isSTART"] = "True"
     args.remove("--start")
+
+isDISABLED = False
+if "--disabled" in args:
+    isDISABLED = True
+    os.environ["isDISABLED"] = "True"
+    args.remove("--disabled")
 
 if util.get_stage() == "test":
     util.isTEST = True
@@ -1313,22 +1209,6 @@ if "--fips" in args and "install" in args:
     os.environ["isFIPS"] = "True"
     args.remove("--fips")
 
-if "--with-postgrest" in args and "install" in args:
-    os.environ["withPOSTGREST"] = "True"
-    args.remove("--with-postgrest")
-
-if "--with-backrest" in args and "install" in args:
-    os.environ["withBACKREST"] = "True"
-    args.remove("--with-backrest")
-
-if "--with-cat" in args and "install" in args:
-    os.environ["withCAT"] = "True"
-    args.remove("--with-cat")
-
-if "--with-patroni" in args and "install" in args:
-    os.environ["withPATRONI"] = "True"
-    args.remove("--with-patroni")
-
 isAUTOSTART = False
 if "--autostart" in args and "install" in args:
     isAUTOSTART = True
@@ -1347,6 +1227,7 @@ if "--silent" in args:
 
 if "--extensions" in args:
     util.isEXTENSIONS = True
+    os.environ["isExtensions"] = "True"
     args.remove("--extensions")
 
 if len(args) == 1:
@@ -1483,7 +1364,7 @@ if p_mode == "pgbin":
     sys.exit(1)
 
 ## FIRE LIST ###############################################################
-if p_mode in fire_list:
+if (p_mode in fire_list) or (p_mode in fire_contrib):
     fire_away(p_mode, args)
 
 ## NATIVE_LIST #######################################
@@ -1772,8 +1653,7 @@ if p_mode == "install":
         if status == 1 and (c in p_comp_list or p_comp_list[0] == "all"):
             if isExt:
                 ## just run the CREATE EXTENSION sql command without reboot or change preloads
-                os.environ["isPreload"] = "False"
-                util.create_extension(parent, c, False)
+                util.create_extension(parent, c, False, enable=False)
             else:
                 ## already installed
                 pass
@@ -1784,7 +1664,7 @@ if p_mode == "install":
                 util.create_manifest(c, parent)
                 util.copy_extension_files(c, parent)
             script_name = "install-" + c
-            run_script(c, script_name, meta.get_current_version(c))
+            util.run_script(c, script_name, meta.get_current_version(c))
             if isJSON:
                 json_dict = {}
                 json_dict["state"] = "install"
@@ -1814,7 +1694,7 @@ script_name = ""
 
 ## UPDATE ###################################################
 if p_mode == "update":
-    retrieve_remote()
+    util.retrieve_remote()
 
     if not isJSON:
         print(" ")
@@ -1935,13 +1815,13 @@ if p_mode == "update":
 
 ## ENABLE, DISABLE ###########################################
 if p_mode == "enable" or p_mode == "disable":
-    args.insert(0,p_mode)
+    args.insert(0, p_mode)
     fire_away("service", args)
 
 ## CONFIG, INIT, RELOAD ##################################
 if p_mode in ["config", "init", "reload"]:
     script_name = p_mode + "-" + p_comp
-    sys.exit(run_script(p_comp, script_name, extra_args))
+    sys.exit(util.run_script(p_comp, script_name, extra_args))
 
 ## STOP component(s) #####################################
 if (p_mode == "stop") or (p_mode == "kill"):

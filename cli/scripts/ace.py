@@ -10,9 +10,11 @@ import json
 import subprocess
 import re
 import util
+import meta
 import fire
 import cluster
 import psycopg
+from psycopg import sql
 from psycopg.rows import dict_row
 from datetime import datetime
 from multiprocessing import Manager, cpu_count, Value, Lock
@@ -59,12 +61,10 @@ def get_dump_file_name(p_prfx, p_schm, p_base_dir="/tmp"):
     return p_base_dir + os.sep + p_prfx + "-" + p_schm + ".sql"
 
 
-def write_pg_dump(p_ip, p_db, p_prfx, p_schm, p_base_dir="/tmp"):
+def write_pg_dump(p_ip, p_db, p_port, p_prfx, p_schm, p_base_dir="/tmp"):
     out_file = get_dump_file_name(p_prfx, p_schm, p_base_dir)
     try:
-        cmd = (
-            "pg_dump -s -n " + p_schm + " -h " + p_ip + " -d " + p_db + " > " + out_file
-        )
+        cmd = f"pg_dump -s -n {p_schm} -h {p_ip} -p {p_port} -d {p_db} > {out_file}"
         os.system(cmd)
     except Exception as e:
         util.exit_exception(e)
@@ -183,62 +183,124 @@ def get_key(p_con, p_schema, p_table):
     return ",".join(key_lst)
 
 
-def diff_schemas(cluster_name, node1, node2, schema_name):
+def schema_diff(cluster_name, nodes, schema_name):
     """Compare Postgres schemas on different cluster nodes"""
 
     util.message(f"## Validating cluster {cluster_name} exists")
+    node_list = []
+    try:
+        if type(nodes) is str and nodes != "all":
+            node_list = [s.strip() for s in nodes.split(",")]
+        elif type(nodes) is not str:
+            node_list = nodes
+    except ValueError as e:
+        util.exit_message(
+            f'Nodes should be a comma-separated list of nodenames. \
+                E.g., --nodes="n1,n2". Error: {e}'
+        )
+
+    if len(node_list) > 3:
+        util.exit_message(
+            "schema-diff currently supports up to a three-way table comparison"
+        )
+
+    if nodes != "all" and len(node_list) == 1:
+        util.exit_message("schema-diff needs at least two nodes to compare")
+
     util.check_cluster_exists(cluster_name)
-
-    if node1 == node2:
-        util.exit_message("node1 must be different than node2")
-
-    l_schema = schema_name
+    util.message(f"Cluster {cluster_name} exists", p_state="success")
 
     db, pg, node_info = cluster.load_json(cluster_name)
 
     cluster_nodes = []
 
+    """
+    Even though multiple databases are allowed, ACE will, for now,
+    only take the first entry in the db list
+    """
+    database = db[0]
+    database["db_name"] = database.pop("name")
+
     # Combine db and cluster_nodes into a single json
-    for database, node in zip(db, node_info):
-        database["db_name"] = database.pop("name")
+    for node in node_info:
         combined_json = {**database, **node}
         cluster_nodes.append(combined_json)
 
+    for nd in cluster_nodes:
+        if nodes == "all":
+            node_list.append(nd["name"])
+
     sql1, sql2 = "", ""
+    l_schema = schema_name
+    file_list = []
 
     for nd in cluster_nodes:
-        if nd["name"] == node1:
-            sql1 = write_pg_dump(nd["ip_address"], nd["db_name"], "con1", l_schema)
-        if nd["name"] == node2:
-            sql2 = write_pg_dump(nd["ip_address"], nd["db_name"], "con2", l_schema)
+        if nd["name"] in node_list:
+            sql1 = write_pg_dump(
+                nd["ip_address"], nd["db_name"], nd["port"], nd["name"], l_schema
+            )
+            file_list.append(sql1)
 
-    cmd = "diff " + sql1 + "  " + sql2 + " > /tmp/diff.txt"
-    util.message("\n## Running # " + cmd + "\n")
-    rc = os.system(cmd)
-    if rc == 0:
-        util.message("SCHEMAS ARE THE SAME!!")
-        return rc
-    else:
-        util.message("SCHEMAS ARE NOT THE SAME!!")
-        util.message("")
-        rc = fix_schema("/tmp/diff.txt", sql1, sql2)
-    return rc
+    if os.stat(file_list[0]).st_size == 0:
+        util.exit_message(f"Schema {schema_name} does not exist on node {node_list[0]}")
+
+    for n in range(1, len(file_list)):
+        cmd = "diff " + file_list[0] + "  " + file_list[n] + " > /tmp/diff.txt"
+        util.message("\n## Running # " + cmd + "\n")
+        rc = os.system(cmd)
+        if os.stat(file_list[n]).st_size == 0:
+            util.exit_message(
+                f"Schema {schema_name} does not exist on node {node_list[n]}"
+            )
+        if rc == 0:
+            util.message(
+                f"SCHEMAS ARE THE SAME- between {node_list[0]} and {node_list[n]} !!",
+                p_state="success",
+            )
+        else:
+            prRed(
+                f"\u2718   SCHEMAS ARE NOT THE SAME- between {node_list[0]}"
+                "and {node_list[n]}!!"
+            )
 
 
-def diff_spock(cluster_name, node1, node2):
+def spock_diff(cluster_name, nodes):
     """Compare spock meta data setup on different cluster nodes"""
-    util.check_cluster_exists(cluster_name)
+    node_list = []
+    try:
+        if type(nodes) is str and nodes != "all":
+            node_list = [s.strip() for s in nodes.split(",")]
+        elif type(nodes) is not str:
+            node_list = nodes
+    except ValueError as e:
+        util.exit_message(
+            f'Nodes should be a comma-separated list of nodenames. \
+                E.g., --nodes="n1,n2". Error: {e}'
+        )
 
-    if node1 == node2:
-        util.exit_message("node1 must be different than node2")
+    if len(node_list) > 3:
+        util.exit_message(
+            "spock-diff currently supports up to a three-way table comparison"
+        )
+
+    if nodes != "all" and len(node_list) == 1:
+        util.exit_message("spock-diff needs at least two nodes to compare")
+
+    util.check_cluster_exists(cluster_name)
+    util.message(f"Cluster {cluster_name} exists", p_state="success")
 
     db, pg, node_info = cluster.load_json(cluster_name)
 
     cluster_nodes = []
+    """
+    Even though multiple databases are allowed, ACE will, for now,
+    only take the first entry in the db list
+    """
+    database = db[0]
+    database["db_name"] = database.pop("name")
 
     # Combine db and cluster_nodes into a single json
-    for database, node in zip(db, node_info):
-        database["db_name"] = database.pop("name")
+    for node in node_info:
         combined_json = {**database, **node}
         cluster_nodes.append(combined_json)
 
@@ -246,6 +308,9 @@ def diff_spock(cluster_name, node1, node2):
 
     try:
         for nd in cluster_nodes:
+            if nodes == "all":
+                node_list.append(nd["name"])
+
             psql_conn = psycopg.connect(
                 dbname=nd["db_name"],
                 user=nd["username"],
@@ -257,17 +322,20 @@ def diff_spock(cluster_name, node1, node2):
             conn_list[nd["name"]] = psql_conn
 
     except Exception as e:
-        util.exit_message("Error in table_diff() Getting Connections:" + str(e), 1)
+        util.exit_message("Error in spock_diff() Getting Connections:" + str(e), 1)
+    
+    for nd in node_list:
+        if nd not in conn_list.keys():
+            util.exit_message(f"Specified nodename \"{nd}\" not present in cluster", 1)
 
     compare_spock = []
     print("\n")
 
     for cluster_node in cluster_nodes:
         cur = conn_list[cluster_node["name"]].cursor()
-        if cluster_node["name"] not in [node1, node2]:
+        if cluster_node["name"] not in node_list:
             continue
         diff_spock = {}
-        diff_sub = {}
         hints = []
         print(" Spock - Config " + cluster_node["name"])
         print("~~~~~~~~~~~~~~~~~~~~~~~~~")
@@ -287,7 +355,9 @@ def diff_spock(cluster_name, node1, node2):
 
         prCyan("  Subscriptions:")
 
+        diff_spock["subscriptions"] = []
         for node in node_info:
+            diff_sub = {}
             if node["sub_name"] is None:
                 hints.append("Hint: No subscriptions have been created on this node")
             else:
@@ -299,20 +369,17 @@ def diff_spock(cluster_name, node1, node2):
                 print("      " + json.dumps(node["sub_replication_sets"]))
                 if node["sub_replication_sets"] == []:
                     hints.append("Hint: No replication sets added to subscription")
-                elif node["sub_replication_sets"] == [
-                    "default",
-                    "default_insert_only",
-                    "ddl_sql",
-                ]:
-                    hints.append(
-                        "Hint: Only default replication sets added to subscription: "
-                        + node["sub_name"]
-                    )
-                diff_spock["subscriptions"] = diff_sub
+                diff_spock["subscriptions"].append(diff_sub)
 
+        # Query gets each table by which rep set they are in, values in each rep set are alphabetized
         sql = """
-        SELECT set_name, string_agg(relname,'   ') as relname
-        FROM spock.tables GROUP BY set_name ORDER BY set_name;
+        SELECT set_name, string_agg(nspname || '.' || relname, '   ') as relname
+        FROM (
+            SELECT set_name, nspname, relname
+            FROM spock.tables
+            ORDER BY set_name, nspname, relname
+        ) subquery
+        GROUP BY set_name ORDER BY set_name;
         """
 
         cur.execute(sql)
@@ -340,15 +407,18 @@ def diff_spock(cluster_name, node1, node2):
             prRed(hint)
         print("\n")
 
-    if len(compare_spock) == 2:
-        print(" Spock - Diff")
-        print("~~~~~~~~~~~~~~~~~~~~~~~~~")
-        if compare_spock[0]["rep_set_info"] == compare_spock[1]["rep_set_info"]:
-            prCyan("   Replication Rules are the same!!")
+    print(" Spock - Diff")
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~")
+    for n in range(1, len(compare_spock)):
+        if compare_spock[0]["rep_set_info"] == compare_spock[n]["rep_set_info"]:
+            util.message(
+                f"   Replication Rules are the same for {node_list[0]} and {node_list[n]}!!",
+                p_state="success",
+            )
         else:
-            prRed("    Difference in Replication Rules")
-
-    return compare_spock
+            prRed(
+                f"\u2718   Difference in Replication Rules between {node_list[0]} and {node_list[n]}"
+            )
 
 
 def run_query(worker_state, host, query):
@@ -362,10 +432,11 @@ def init_db_connection(shared_objects, worker_state):
     db, pg, node_info = cluster.load_json(shared_objects["cluster_name"])
 
     cluster_nodes = []
+    database = db[0]
+    database["db_name"] = database.pop("name")
 
     # Combine db and cluster_nodes into a single json
-    for database, node in zip(db, node_info):
-        database["db_name"] = database.pop("name")
+    for node in node_info:
         combined_json = {**database, **node}
         cluster_nodes.append(combined_json)
 
@@ -386,26 +457,87 @@ def compare_checksums(shared_objects, worker_state, pkey1, pkey2):
         return
 
     p_key = shared_objects["p_key"]
+    schema_name = shared_objects["schema_name"]
     table_name = shared_objects["table_name"]
     node_list = shared_objects["node_list"]
     cols = shared_objects["cols_list"]
+    simple_primary_key = shared_objects["simple_primary_key"]
 
-    hash_sql = f"""
-    SELECT md5(cast(array_agg(t.* ORDER BY {p_key}) AS text))
-    FROM (SELECT * FROM {table_name} WHERE """
+    where_clause = []
 
-    where_clause = ""
+    if simple_primary_key:
+        if pkey1 is not None:
+            where_clause.append(
+                sql.SQL("{p_key} >= {pkey1}").format(
+                    p_key=sql.Identifier(p_key), pkey1=sql.Literal(pkey1)
+                )
+            )
+        if pkey2 is not None:
+            where_clause.append(
+                sql.SQL("{p_key} < {pkey2}").format(
+                    p_key=sql.Identifier(p_key), pkey2=sql.Literal(pkey2)
+                )
+            )
+    else:
+        """
+        This is a slightly more complicated case since we have to split up
+        the primary key and compare them with split values of pkey1 and pkey2
+        """
 
-    if pkey1:
-        where_clause += f"({p_key}) >= {pkey1}"
-    if pkey2:
-        if where_clause:
-            where_clause += " AND "
-        where_clause += f"({p_key}) < {pkey2}"
+        if pkey1 is not None:
+            where_clause.append(
+                sql.SQL("({p_key}) >= ({pkey1})").format(
+                    p_key=sql.SQL(", ").join(
+                        [sql.Identifier(col.strip()) for col in p_key.split(",")]
+                    ),
+                    pkey1=sql.SQL(", ").join([sql.Literal(val) for val in pkey1]),
+                )
+            )
 
-    hash_sql += where_clause + ") t;"
+        if pkey2 is not None:
+            where_clause.append(
+                sql.SQL("({p_key}) < ({pkey2})").format(
+                    p_key=sql.SQL(", ").join(
+                        [sql.Identifier(col.strip()) for col in p_key.split(",")]
+                    ),
+                    pkey2=sql.SQL(", ").join([sql.Literal(val) for val in pkey2]),
+                )
+            )
 
-    block_sql = f"SELECT * FROM {table_name} WHERE " + where_clause + ";"
+    if simple_primary_key:
+        hash_sql = sql.SQL(
+            "SELECT md5(cast(array_agg(t.* ORDER BY {p_key}) AS text)) FROM"
+            "(SELECT * FROM {table_name} WHERE {where_clause}) t"
+        ).format(
+            p_key=sql.Identifier(p_key),
+            table_name=sql.SQL("{}.{}").format(
+                sql.Identifier(schema_name),
+                sql.Identifier(table_name),
+            ),
+            where_clause=sql.SQL(" AND ").join(where_clause),
+        )
+    else:
+        hash_sql = sql.SQL(
+            "SELECT md5(cast(array_agg(t.* ORDER BY {p_key}) AS text)) FROM"
+            "(SELECT * FROM {table_name} WHERE {where_clause}) t"
+        ).format(
+            p_key=sql.SQL(", ").join(
+                [sql.Identifier(col.strip()) for col in p_key.split(",")]
+            ),
+            table_name=sql.SQL("{}.{}").format(
+                sql.Identifier(schema_name),
+                sql.Identifier(table_name),
+            ),
+            where_clause=sql.SQL(" AND ").join(where_clause),
+        )
+
+    block_sql = sql.SQL("SELECT * FROM {table_name} WHERE {where_clause}").format(
+        table_name=sql.SQL("{}.{}").format(
+            sql.Identifier(schema_name),
+            sql.Identifier(table_name),
+        ),
+        where_clause=sql.SQL(" AND ").join(where_clause),
+    )
 
     node_pairs = combinations(node_list, 2)
 
@@ -430,7 +562,8 @@ def compare_checksums(shared_objects, worker_state, pkey1, pkey2):
                     executor.submit(run_query, worker_state, host2, hash_sql),
                 ]
                 hash1, hash2 = [f.result()[0][0] for f in futures]
-        except Exception:
+        except Exception as e:
+            print(f"query = {hash_sql.as_string(worker_state[host1])}", e)
             result_queue.append(BLOCK_ERROR)
             return
 
@@ -443,9 +576,26 @@ def compare_checksums(shared_objects, worker_state, pkey1, pkey2):
                         executor.submit(run_query, worker_state, host2, block_sql),
                     ]
                     t1_result, t2_result = [f.result() for f in futures]
-            except Exception:
+            except Exception as e:
+                print(f"query = {block_sql}", e)
                 result_queue.append(BLOCK_ERROR)
                 return
+
+            # Transform all elements in t1_result and t2_result into strings before
+            # consolidating them into a set
+            # TODO: Test and add support for different datatypes here
+            t1_result = [
+                tuple(
+                    str(x) if not isinstance(x, list) else str(sorted(x)) for x in row
+                )
+                for row in t1_result
+            ]
+            t2_result = [
+                tuple(
+                    str(x) if not isinstance(x, list) else str(sorted(x)) for x in row
+                )
+                for row in t2_result
+            ]
 
             # Collect results into OrderedSets for comparison
             t1_set = OrderedSet(t1_result)
@@ -492,6 +642,7 @@ def compare_checksums(shared_objects, worker_state, pkey1, pkey2):
 def table_diff(
     cluster_name,
     table_name,
+    dbname=None,
     block_rows=1000,
     max_cpu_ratio=MAX_CPU_RATIO,
     output="json",
@@ -506,12 +657,14 @@ def table_diff(
         except Exception:
             util.exit_message("Invalid values for ACE_BLOCK_ROWS")
     try:
-        max_cpu_ratio = int(os.environ.get("ACE_MAX_CPU_RATIO", max_cpu_ratio))
+        max_cpu_ratio = float(os.environ.get("ACE_MAX_CPU_RATIO", max_cpu_ratio))
     except Exception:
         util.exit_message("Invalid values for ACE_MAX_CPU_RATIO")
 
     if max_cpu_ratio > 1 or max_cpu_ratio < 0:
         util.exit_message("Invalid values for ACE_MAX_CPU_RATIO or --max_cpu_ratio")
+
+    max_cpu_ratio = float(max_cpu_ratio)
 
     # Capping max block size here to prevent the hash function from taking forever
     if block_rows > MAX_ALLOWED_BLOCK_SIZE:
@@ -563,10 +716,23 @@ def table_diff(
     db, pg, node_info = cluster.load_json(cluster_name)
 
     cluster_nodes = []
+    database = {}
+
+    if dbname:
+        for db_entry in db:
+            if db_entry["name"] == dbname:
+                database = db_entry
+                break
+    else:
+        database = db[0]
+
+    if not database:
+        util.exit_message(f"Database '{dbname}' not found in cluster '{cluster_name}'")
+
+    database["db_name"] = database.pop("name")
 
     # Combine db and cluster_nodes into a single json
-    for database, node in zip(db, node_info):
-        database["db_name"] = database.pop("name")
+    for node in node_info:
         combined_json = {**database, **node}
         cluster_nodes.append(combined_json)
 
@@ -656,10 +822,20 @@ def table_diff(
     # of every block row. Repeat until we no longer have any more rows.
     # Store results in pkey_offsets.
 
-    # TODO: Test for composite keys
-    pkey_sql = f"""
-    SELECT {key} FROM {table_name} ORDER BY {key};
-    """
+    if simple_primary_key:
+        pkey_sql = sql.SQL("SELECT {key} FROM {table_name} ORDER BY {key}").format(
+            key=sql.Identifier(key),
+            table_name=sql.SQL("{}.{}").format(
+                sql.Identifier(l_schema), sql.Identifier(l_table)
+            ),
+        )
+    else:
+        pkey_sql = sql.SQL("SELECT {key} FROM {table_name} ORDER BY {key}").format(
+            key=sql.SQL(", ").join([sql.Identifier(col) for col in key.split(",")]),
+            table_name=sql.SQL("{}.{}").format(
+                sql.Identifier(l_schema), sql.Identifier(l_table)
+            ),
+        )
 
     def get_pkey_offsets(conn, pkey_sql, block_rows):
         pkey_offsets = []
@@ -668,21 +844,29 @@ def table_diff(
         rows = cur.fetchmany(block_rows)
 
         if simple_primary_key:
-            rows[:] = [x[0] for x in rows]
-
-        pkey_offsets.append((None, rows[0]))
-        prev_min_offset = rows[0]
-        prev_max_offset = rows[-1]
+            rows[:] = [str(x[0]) for x in rows]
+            pkey_offsets.append((None, str(rows[0])))
+            prev_min_offset = str(rows[0])
+            prev_max_offset = str(rows[-1])
+        else:
+            rows[:] = [tuple(str(i) for i in x) for x in rows]
+            pkey_offsets.append((None, rows[0]))
+            prev_min_offset = rows[0]
+            prev_max_offset = rows[-1]
 
         while rows:
             rows = cur.fetchmany(block_rows)
             if simple_primary_key:
-                rows[:] = [x[0] for x in rows]
+                rows[:] = [str(x[0]) for x in rows]
+            else:
+                rows[:] = [tuple(str(i) for i in x) for x in rows]
+
             if not rows:
                 if prev_max_offset != prev_min_offset:
                     pkey_offsets.append((prev_min_offset, prev_max_offset))
                 pkey_offsets.append((prev_max_offset, None))
                 break
+
             curr_min_offset = rows[0]
             pkey_offsets.append((prev_min_offset, curr_min_offset))
             prev_min_offset = curr_min_offset
@@ -715,15 +899,18 @@ def table_diff(
         offsets = [x for x in range(0, row_count + 1, block_rows)]
 
     cols_list = cols.split(",")
+    cols_list = [col for col in cols_list if not col.startswith("_Spock_")]
 
     # Shared variables needed by all workers
     shared_objects = {
         "cluster_name": cluster_name,
         "node_list": node_list,
-        "table_name": table_name,
+        "schema_name": l_schema,
+        "table_name": l_table,
         "cols_list": cols_list,
         "p_key": key,
         "block_rows": block_rows,
+        "simple_primary_key": simple_primary_key,
     }
 
     print("")
@@ -878,7 +1065,7 @@ def write_diffs_csv():
         )
 
 
-def table_rerun(cluster_name, diff_file, table_name):
+def table_rerun(cluster_name, diff_file, table_name, dbname=None):
     """Re-run differences on the results of a recent table-diff"""
 
     if not os.path.exists(diff_file):
@@ -896,10 +1083,23 @@ def table_rerun(cluster_name, diff_file, table_name):
     db, pg, node_info = cluster.load_json(cluster_name)
 
     cluster_nodes = []
+    database = {}
+
+    if dbname:
+        for db_entry in db:
+            if db_entry["name"] == dbname:
+                database = db_entry
+                break
+    else:
+        database = db[0]
+
+    if not database:
+        util.exit_message(f"Database '{dbname}' not found in cluster '{cluster_name}'")
+
+    database["db_name"] = database.pop("name")
 
     # Combine db and cluster_nodes into a single json
-    for database, node in zip(db, node_info):
-        database["db_name"] = database.pop("name")
+    for node in node_info:
         combined_json = {**database, **node}
         cluster_nodes.append(combined_json)
 
@@ -1001,6 +1201,7 @@ def table_rerun(cluster_name, diff_file, table_name):
         diff_values[node_pair] = list(diff_values[node_pair])
 
     cols_list = cols.split(",")
+    cols_list = [col for col in cols_list if not col.startswith("_Spock_")]
 
     def run_query(cur, query):
         cur.execute(query)
@@ -1023,7 +1224,7 @@ def table_rerun(cluster_name, diff_file, table_name):
                 sql = f"""
                 SELECT *
                 FROM {table_name}
-                WHERE {key} = '{index}';
+                WHERE "{key}" = '{index}';
                 """
 
                 with ThreadPoolExecutor(max_workers=2) as executor:
@@ -1033,8 +1234,27 @@ def table_rerun(cluster_name, diff_file, table_name):
                     ]
 
                     t1_result, t2_result = [f.result() for f in futures]
-                    node1_set.add(t1_result[0])
-                    node2_set.add(t2_result[0])
+
+                    t1_result = [
+                        tuple(
+                            str(x) if not isinstance(x, list) else str(sorted(x))
+                            for x in row
+                        )
+                        for row in t1_result
+                    ]
+                    t2_result = [
+                        tuple(
+                            str(x) if not isinstance(x, list) else str(sorted(x))
+                            for x in row
+                        )
+                        for row in t2_result
+                    ]
+
+                    t1_result = tuple(t1_result)
+                    t2_result = tuple(t2_result)
+
+                    node1_set.add(t1_result)
+                    node2_set.add(t2_result)
         else:
             for indices in values:
                 sql = f"""
@@ -1044,9 +1264,8 @@ def table_rerun(cluster_name, diff_file, table_name):
                 """
 
                 ctr = 0
-                # XXX: What about ordering?
                 for k in key.split(","):
-                    sql += f" {k} = '{indices[ctr]}' AND"
+                    sql += f" \"{k}\" = '{indices[ctr]}' AND"
                     ctr += 1
 
                 # Get rid of the last "AND" and add a semicolon
@@ -1059,10 +1278,27 @@ def table_rerun(cluster_name, diff_file, table_name):
                     ]
 
                     t1_result, t2_result = [f.result() for f in futures]
-                    if t1_result:
-                        node1_set.add(t1_result[0])
-                    if t2_result:
-                        node2_set.add(t2_result[0])
+
+                    t1_result = [
+                        tuple(
+                            str(x) if not isinstance(x, list) else str(sorted(x))
+                            for x in row
+                        )
+                        for row in t1_result
+                    ]
+                    t2_result = [
+                        tuple(
+                            str(x) if not isinstance(x, list) else str(sorted(x))
+                            for x in row
+                        )
+                        for row in t2_result
+                    ]
+
+                    t1_result = tuple(t1_result)
+                    t2_result = tuple(t2_result)
+
+                    node1_set.add(t1_result)
+                    node2_set.add(t2_result)
 
         node1_diff = node1_set - node2_set
         node2_diff = node2_set - node1_set
@@ -1097,7 +1333,9 @@ def table_rerun(cluster_name, diff_file, table_name):
     util.message("RUN TIME = " + str(util.round_timedelta(datetime.now() - start_time)))
 
 
-def table_repair(cluster_name, diff_file, source_of_truth, table_name, dry_run=False):
+def table_repair(
+    cluster_name, diff_file, source_of_truth, table_name, dbname=None, dry_run=False
+):
     """Apply changes from a table-diff source of truth to destination table"""
     import pandas as pd
 
@@ -1118,10 +1356,23 @@ def table_repair(cluster_name, diff_file, source_of_truth, table_name, dry_run=F
     db, pg, node_info = cluster.load_json(cluster_name)
 
     cluster_nodes = []
+    database = {}
+
+    if dbname:
+        for db_entry in db:
+            if db_entry["name"] == dbname:
+                database = db_entry
+                break
+    else:
+        database = db[0]
+
+    if not database:
+        util.exit_message(f"Database '{dbname}' not found in cluster '{cluster_name}'")
+
+    database["db_name"] = database.pop("name")
 
     # Combine db and cluster_nodes into a single json
-    for database, node in zip(db, node_info):
-        database["db_name"] = database.pop("name")
+    for node in node_info:
         combined_json = {**database, **node}
         cluster_nodes.append(combined_json)
 
@@ -1266,6 +1517,9 @@ def table_repair(cluster_name, diff_file, source_of_truth, table_name, dry_run=F
         return
 
     cols_list = cols.split(",")
+    # Remove metadata columsn "_Spock_CommitTS_" and "_Spock_CommitOrigin_"
+    # from cols_list
+    cols_list = [col for col in cols_list if not col.startswith("_Spock_")]
     simple_primary_key = True
     keys_list = []
 
@@ -1372,14 +1626,22 @@ def table_repair(cluster_name, diff_file, source_of_truth, table_name, dry_run=F
         Here we are constructing an UPSERT query from true_rows and
         applying it to all nodes
         """
-        update_sql = f"""
-        INSERT INTO {table_name}
-        VALUES ({','.join(['%s'] * len(cols_list))})
-        ON CONFLICT ({key}) DO UPDATE SET
-        """
+        if simple_primary_key:
+            update_sql = f"""
+            INSERT INTO {table_name}
+            VALUES ({','.join(['%s'] * len(cols_list))})
+            ON CONFLICT ("{key}") DO UPDATE SET
+            """
+        else:
+            update_sql = f"""
+            INSERT INTO {table_name}
+            VALUES ({','.join(['%s'] * len(cols_list))})
+            ON CONFLICT
+            ({','.join(['"' + col + '"' for col in keys_list])}) DO UPDATE SET
+            """
 
         for col in cols_list:
-            update_sql += f"{col} = EXCLUDED.{col}, "
+            update_sql += f'"{col}" = EXCLUDED."{col}", '
 
         update_sql = update_sql[:-2] + ";"
 
@@ -1388,7 +1650,7 @@ def table_repair(cluster_name, diff_file, source_of_truth, table_name, dry_run=F
         if simple_primary_key:
             delete_sql = f"""
             DELETE FROM {table_name}
-            WHERE {key} = %s;
+            WHERE "{key}" = %s;
             """
         else:
             delete_sql = f"""
@@ -1397,12 +1659,18 @@ def table_repair(cluster_name, diff_file, source_of_truth, table_name, dry_run=F
             """
 
             for k in keys_list:
-                delete_sql += f" {k} = %s AND"
+                delete_sql += f' "{k}" = %s AND'
 
             delete_sql = delete_sql[:-3] + ";"
 
         conn = conns[divergent_node]
         cur = conn.cursor()
+        spock_version = meta.get_spock_version(conn)
+
+        # FIXME: Do not use harcoded version numbers
+        # Read required version numbers from a config file
+        if spock_version >= 4.0:
+            cur.execute("SELECT spock.repair_mode(true);")
 
         if rows_to_upsert:
             upsert_tuples = [tuple(row.values()) for row in rows_to_upsert_json]
@@ -1414,6 +1682,9 @@ def table_repair(cluster_name, diff_file, source_of_truth, table_name, dry_run=F
             # Performing the deletes
             if len(delete_keys) > 0:
                 cur.executemany(delete_sql, delete_keys)
+
+        if spock_version >= 4.0:
+            cur.execute("SELECT spock.repair_mode(false);")
 
         conn.commit()
 
@@ -1448,10 +1719,21 @@ def table_repair(cluster_name, diff_file, source_of_truth, table_name, dry_run=F
         p_state="info",
     )
 
+    print()
+
+    if spock_version < 4.0:
+        util.message(
+            "WARNING: Unable to pause/resume replication during repair due to"
+            "an older spock version. Please do a manual check as repair may"
+            "have caused further divergence",
+            p_state="warning",
+        )
+
 
 def repset_diff(
     cluster_name,
     repset_name,
+    dbname=None,
     block_rows=10000,
     max_cpu_ratio=MAX_CPU_RATIO,
     output="json",
@@ -1516,10 +1798,23 @@ def repset_diff(
     db, pg, node_info = cluster.load_json(cluster_name)
 
     cluster_nodes = []
+    database = {}
+
+    if dbname:
+        for db_entry in db:
+            if db_entry["name"] == dbname:
+                database = db_entry
+                break
+    else:
+        database = db[0]
+
+    if not database:
+        util.exit_message(f"Database '{dbname}' not found in cluster '{cluster_name}'")
+
+    database["db_name"] = database.pop("name")
 
     # Combine db and cluster_nodes into a single json
-    for database, node in zip(db, node_info):
-        database["db_name"] = database.pop("name")
+    for node in node_info:
         combined_json = {**database, **node}
         cluster_nodes.append(combined_json)
 
@@ -1578,10 +1873,10 @@ if __name__ == "__main__":
     fire.Fire(
         {
             "table-diff": table_diff,
-            "diff-schemas": diff_schemas,
-            "diff-spock": diff_spock,
             "table-repair": table_repair,
             "table-rerun": table_rerun,
             "repset-diff": repset_diff,
+            "schema-diff": schema_diff,
+            "spock-diff": spock_diff,
         }
     )

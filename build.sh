@@ -27,31 +27,6 @@ printUsageMessage () {
 }
 
 
-fatalError () {
-  echo "FATAL ERROR!  $1"
-  if [ "$2" == "u" ]; then
-    printUsageMessage
-  fi
-  echo
-  exit 1
-}
-
-
-echoCmd () {
-  echo "# $1"
-  checkCmd "$1"
-}
-
-
-checkCmd () {
-  $1
-  rc=`echo $?`
-  if [ ! "$rc" == "0" ]; then
-    fatalError "Stopping Script"
-  fi
-}
-
-
 myReplace () {
   oldVal="$1"
   newVal="$2"
@@ -75,7 +50,7 @@ writeSettRow() {
   pKey="$2"
   pValue="$3"
   pVerbose="$4"
-  dbLocal="$out/conf/db_local.db"
+  dbLocal="$out/data/conf/db_local.db"
   cmdPy="$PYTHON $HUB/src/conf/insert_setting.py"
   $cmdPy "$dbLocal"  "$pSection" "$pKey" "$pValue"
   if [ "$pVerbose" == "-v" ]; then
@@ -106,7 +81,7 @@ writeCompRow() {
     return
   fi
 
-  dbLocal="$out/conf/db_local.db"
+  dbLocal="$out/data/conf/db_local.db"
   cmdPy="$PYTHON $HUB/src/conf/insert_component.py"
   $cmdPy "$dbLocal"  "$pComp" "$pProj" "$pVer" "$pPlat" "$pPort" "$pStatus"
 }
@@ -121,6 +96,8 @@ initDir () {
   pStatus="$6"
   pPort="$7"
   pParent="$8"
+
+  ## echo "DEBUG initDir(1=$1, 2=$2, 3=$3 4=$4, 5=$5, 6=$6, 7=$7, 8=$8"
 
   if [ "$pStatus" == "" ]; then
     pStatus="NotInstalled"
@@ -191,42 +168,6 @@ initDir () {
     $cpCmd $SRC/$pComponent/*  $myNewDir/.
   fi
 
-  copy-pgXX "snowflake"
-  copy-pgXX "orafce"
-  copy-pgXX "spock32"
-  copy-pgXX "spock33"
-  copy-pgXX "spock40"
-  copy-pgXX "lolor"
-  copy-pgXX "curl"
-  copy-pgXX "pglogical"
-  ##copy-pgXX "anon"
-  copy-pgXX "plprofiler"
-  copy-pgXX "pldebugger"
-  copy-pgXX "partman"
-  ##copy-pgXX "repack"
-  ##copy-pgXX "bulkload"
-  copy-pgXX "audit"   
-  copy-pgXX "postgis"   
-  ##copy-pgXX "mysqlfdw"  
-  ##copy-pgXX "mongofdw"  
-  ##copy-pgXX "decoderbufs"  
-  ##copy-pgXX "oraclefdw"  
-  ##copy-pgXX "tdsfdw"  
-  copy-pgXX "cron"
-  copy-pgXX "readonly"
-  copy-pgXX "foslots"
-  copy-pgXX "wal2json"
-  copy-pgXX "citus"
-  copy-pgXX "vector"
-  ##copy-pgXX "multicorn2"
-  ##copy-pgXX "esfdw"
-  ##copy-pgXX "bqfdw"
-  copy-pgXX "pljava"
-  copy-pgXX "plv8"
-  copy-pgXX "hintplan"
-  copy-pgXX "timescaledb"
-  copy-pgXX "hypopg"
-
   if [ -f $myNewDir/LICENSE.TXT ]; then
     mv $myNewDir/LICENSE.TXT $myNewDir/$pComponent-LICENSE.TXT
   fi
@@ -241,26 +182,6 @@ initDir () {
 
   rm -rf $myNewdir/build*
   rm -rf $myNewDir/.git*
-}
-
-
-copy-pgXX () {
-  if [ "$pComponent" == "$1-pg$pgM" ]; then
-    checkCmd "cp -r $SRC/$1-pgXX/* $myNewDir/."
-
-    checkCmd "mv $myNewDir/install-$1-pgXX.py $myNewDir/install-$1-pg$pgM.py"
-    myReplace "pgXX" "pg$pgM" "$myNewDir/install-$1-pg$pgM.py"
-
-    if [ -f $myNewDir/remove-$1-pgXX.py ]; then
-      checkCmd "mv $myNewDir/remove-$1-pgXX.py $myNewDir/remove-$1-pg$pgM.py"
-      myReplace "pgXX" "pg$pgM" "$myNewDir/remove-$1-pg$pgM.py"
-    fi
-
-    if [ -f $myNewDir/config-$1-pgXX.py ]; then
-      checkCmd "mv $myNewDir/config-$1-pgXX.py $myNewDir/config-$1-pg$pgM.py"
-      myReplace "pgXX" "pg$pgM" "$myNewDir/config-$1-pg$pgM.py"
-    fi
-  fi
 }
 
 
@@ -288,11 +209,11 @@ zipDir () {
     if [ "$osName" == "Linux" ]; then
       options="--owner=0 --group=0"
     fi
-    if [ "$pComponent" == "hub" ]; then
-      zip_bz2=$baseName.tar.bz2
-      checkCmd "tar $options -cjf $zip_bz2 $pComponent"
-      writeFileChecksum $zip_bz2
-    fi
+    ## if [ "$pComponent" == "hub" ]; then
+    ##   zip_bz2=$baseName.tar.bz2
+    ##   checkCmd "tar $options -cjf $zip_bz2 $pComponent"
+    ##   writeFileChecksum $zip_bz2
+    ## fi
     checkCmd "tar $options -czf $myTarball $pComponent"
     writeFileChecksum $myTarball
   fi
@@ -320,6 +241,7 @@ finalizeOutput () {
   checkCmd "cp $CLI/*.sh        hub/scripts/."
   checkCmd "cp $CLI/*.template  hub/scripts/."
   checkCmd "cp -r $CLI/fire     hub/scripts/."
+  checkCmd "cp -r $CLI/contrib  hub/scripts/."
   checkCmd "cp -r $CLI/lib      hub/scripts/."
   checkCmd "cp -r $CLI/ini      hub/scripts/."
   checkCmd "cp -r $CLI/libcloud hub/scripts/."
@@ -330,10 +252,8 @@ finalizeOutput () {
   checkCmd "cp $CLI/../README.md  hub/doc/."
   zipDir "hub" "$hubV" "" "Enabled"
 
-  checkCmd "cp conf/versions.sql  ."
+  checkCmd "cp data/conf/versions.sql  ."
   writeFileChecksum "versions.sql"
-  checkCmd "cp conf/versions.sql  versions24.sql"
-  writeFileChecksum "versions24.sql"
 
   checkCmd "cd $HUB"
 
@@ -411,39 +331,7 @@ initC () {
 
 
 initPG () {
-  if [ "$pgM" == "12" ]; then
-    pgV=$P12
-  elif [ "$pgM" == "13" ]; then
-    pgV=$P13
-  elif [ "$pgM" == "14" ]; then
-    pgV=$P14
-  elif [ "$pgM" == "15" ]; then
-    pgV=$P15
-  elif [ "$pgM" == "16" ]; then
-    pgV=$P16
-  elif [ "$pgM" == "17" ]; then
-    pgV=$P17
-  else
-    echo "ERROR: Invalid PG version '$pgM'"
-    exit 1
-  fi
-
-  if [ "$outDir" == "a64" ]; then
-    outPlat="arm"
-    if [ "$isEL9" == "True" ]; then
-      outPlat="arm9"
-    fi
-  elif [ "$outDir" == "m64" ]; then
-    outPlat="osx"
-  else
-    if [ "$isEL8" == "True" ]; then
-      outPlat="el8"
-    elif [ "$isEL9" == "True" ]; then
-      outPlat="el9"
-    else
-      outPlat="amd"
-    fi
-  fi
+  setPGV "$pgM"
 
   writeSettRow "GLOBAL" "STAGE" "prod"
   writeSettRow "GLOBAL" "AUTOSTART" "off"
@@ -455,22 +343,19 @@ initPG () {
   supplementalPG "$pgComp"
   zipDir "$pgComp" "$pgV" "$outPlat" "Enabled"
 
-  if [ "$pgM" \> "13" ] && [ "$pgM" \< "17" ]; then
+  if [ "$pgM" \> "13" ] && [ "$pgM" \< "18" ]; then
+    initC "spock40-pg$pgM"    "spock40"    "$spock40V"   "$outPlat" "postgres/spock40"   "" "" "nil"
+    initC "lolor-pg$pgM"      "lolor"      "$lolorV"     "$outPlat" "postgres/lolor"     "" "" "nil"
     initC "snowflake-pg$pgM"  "snowflake"  "$snwflkV"    "$outPlat" "postgres/snowflake" "" "" "nil"
-    initC "spock33-pg$pgM"    "spock33"    "$spock33V"   "$outPlat" "postgres/spock33"   "" "" "nil"
-    initC "readonly-pg$pgM"   "readonly"   "$readonlyV"  "$outPlat" "postgres/readonly"   "" "" "nil"
   fi
 
+  if [ "$pgM" \> "13" ] && [ "$pgM" \< "17" ]; then
+    initC "spock33-pg$pgM"    "spock33"    "$spock33V"   "$outPlat" "postgres/spock33"   "" "" "nil"
+  fi
+
+  ## bug out on OSX
   if [ "$isEL" == "False" ]; then
     return
-  fi
-
-  if [ "$pgM" == "16" ]; then
-    initC "lolor-pg$pgM"      "lolor"      "$lolorV"     "$outPlat" "postgres/lolor"     "" "" "nil"
-  fi
-
-  if [ "$pgM" == "15" ] || [ "$pgM" == "16" ]; then
-    initC "spock40-pg$pgM"    "spock40"    "$spock40V"   "$outPlat" "postgres/spock40"   "" "" "nil"
   fi
 
   if [ "$pgM" == "14" ] || [ "$pgM" == "15" ]; then
@@ -478,13 +363,16 @@ initPG () {
   fi
 
   initC "backrest"     "backrest"     "$backrestV" "$outPlat" "postgres/backrest" "" "" "nil"
+  initC "etcd"         "etcd"         "$etcdV"     "$outPlat" "etcd"              "" "" "nil"
+  initC "pgcat"        "pgcat"        "$catV"      "$outPlat" "postgres/pgcat"    "" "" "nil"
+  initC "patroni"      "patroni"      "$patroniV"  ""         "patroni"           "" "" "nil"
+  initC "firewalld"    "firewalld"    "$firwldV"   ""         "firewalld"         "" "" "nil"
 
   if [ "$isEL9" == "True" ]; then
 
     if [ "$pgM" == "16" ]; then
       initC "audit-pg$pgM"      "audit"      "$audit16V"   "$outPlat" "postgres/audit"     "" "" "nil"
       initC "hintplan-pg$pgM"   "hintplan"   "$hint16V"    "$outPlat" "postgres/hintplan"  "" "" "nil"
-      initC "plv8-pg$pgM"       "plv8"       "$v8V"        "$outPlat" "postgres/plv8"       "" "" "nil"
     fi
 
     if [ "$pgM" == "15" ]; then
@@ -493,10 +381,9 @@ initPG () {
     fi
 
     if [ "$pgM" == "15" ] || [ "$pgM" == "16" ]; then
+      initC "plv8-pg$pgM"       "plv8"       "$v8V"        "$outPlat" "postgres/plv8"       "" "" "nil"
       initC "wal2json-pg$pgM"   "wal2json"   "$wal2jV"     "$outPlat" "postgres/wal2json"   "" "" "nil"
       initC "pldebugger-pg$pgM" "pldebugger" "$debuggerV"  "$outPlat" "postgres/pldebugger" "" "" "nil"
-      initC "pglogical-pg$pgM"  "pglogical"  "$logicalV"   "$outPlat" "postgres/logical"    "" "" "nil"
-      initC "citus-pg$pgM"      "citus"      "$citusV"     "$outPlat" "postgres/citus"      "" "" "nil"
       initC "hypopg-pg$pgM"     "hypopg"     "$hypoV"      "$outPlat" "postgres/hypopg"     "" "" "nil"
       initC "curl-pg$pgM"       "curl"       "$curlV"      "$outPlat" "postgres/curl"       "" "" "nil"
       initC "orafce-pg$pgM"     "orafce"     "$orafceV"    "$outPlat" "postgres/orafce"     "" "" "nil"
@@ -505,23 +392,21 @@ initPG () {
       initC "postgis-pg$pgM"    "postgis"    "$postgisV"   "$outPlat" "postgres/postgis"    "" "" "nil"
       initC "cron-pg$pgM"       "cron"       "$cronV"      "$outPlat" "postgres/cron"       "" "" "nil"
       initC "partman-pg$pgM"    "partman"    "$partmanV"   "$outPlat" "postgres/partman"    "" "" "nil"
+
+      initC "citus-pg$pgM"      "citus"      "$citusV"     "$outPlat" "postgres/citus"      "" "" "nil"
       initC "timescaledb-pg$pgM" "timescaledb" "$timescaleV" "$outPlat" "postgres/timescale" "" "" "nil"
+
       ##initC "pljava-pg$pgM"     "pljava"     "$pljavaV"    "$outPlat" "postgres/pljava"     "" "" "nil"
       ##if [ `arch` != "aarch64" ]; then
       ##  initC "oraclefdw-pg$pgM"  "oraclefdw"  "$oraclefdwV" "$outPlat" "postgres/oraclefdw" "" "" "nil"
       ##fi
     fi
 
-    # initC "postgrest"    "postgrest"    "$postgrestV" "$outPlat" "postgres/postgrest" "" "" "nil"
-    # initC "group-pgedge" "group-pgedge" "$grp_pgeV"  ""         "group-pgedge"      "" "" "Y"
+    initC "prompgexp"    "prompgexp"    "$prompgexpV" "$outPlat" "postgres/prompgexp" "" "" "nil"
 
-    initC "prest"        "prest"        "$prestV"    "$outPlat" "pREST"             "" "" "nil"
-    initC "patroni"      "patroni"      "$patroniV"  ""         "patroni"           "" "" "nil"
-    initC "etcd"         "etcd"         "$etcdV"     "$outPlat" "etcd"              "" "" "nil"
-    initC "firewalld"    "firewalld"    "$firwldV"   ""         "firewalld"         "" "" "nil"
-    initC "pgcat"        "pgcat"        "$catV"      "$outPlat" "postgres/pgcat"    "" "" "nil"
-    initC "pgadmin4"     "pgadmin4"     "$adminV"    ""         "postgres/pgadmin4" "" "" "Y"
-    # initC "prompgexp"    "prompgexp"    "$prompgexpV" "$outPlat" "postgres/prompgexp" "" "" "nil"
+    # initC "postgrest"    "postgrest"    "$postgrestV" "$outPlat" "postgres/postgrest" "" "" "nil"
+    # initC "prest"        "prest"        "$prestV"    "$outPlat" "pREST"             "" "" "nil"
+    # initC "pgadmin4"     "pgadmin4"     "$adminV"    ""         "postgres/pgadmin4" "" "" "Y"
   fi
 
   return
@@ -535,13 +420,15 @@ setupOutdir () {
   mkdir $outDir
   cd $outDir
   out="$PWD"
-  mkdir conf
-  mkdir conf/cache
-  conf="$SRC/conf"
 
-  cp $conf/db_local.db  conf/.
-  cp $conf/versions.sql  conf/.
-  sqlite3 conf/db_local.db < conf/versions.sql
+  mkdir -p data/logs
+  d_conf=data/conf
+  mkdir -p $d_conf/cache
+
+  s_conf="$SRC/conf"
+  cp $s_conf/db_local.db  $d_conf/.
+  cp $s_conf/versions.sql  $d_conf/.
+  sqlite3 $d_conf/db_local.db < $d_conf/versions.sql
 }
 
 
@@ -578,10 +465,10 @@ do
 
             cp $CLI/sh/cli.sh     ./pgedge
 
-	    depnc=sh/deprecate-nc.sh
-	    cp $CLI/$depnc        ./nc
-	    cp $CLI/$depnc        ./nodectl 
-	    cp $CLI/$depnc        ./ctl 
+	    ##depnc=sh/deprecate-nc.sh
+	    ##cp $CLI/$depnc        ./nc
+	    ##cp $CLI/$depnc        ./nodectl 
+	    ##cp $CLI/$depnc        ./ctl 
 
             if [ "$outDir" == "posix" ]; then
               OS="???"

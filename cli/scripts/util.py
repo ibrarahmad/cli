@@ -1,13 +1,17 @@
 #  Copyright 2022-2024 PGEDGE  All rights reserved. #
 
 import os
+import time
 
-MY_VERSION = "24.4.0"
+MY_VERSION = "24.7.0"
 DEFAULT_PG = "16"
 DEFAULT_SPOCK = "33"
+DEFAULT_SPOCK_17 = "40"
 MY_CMD = os.getenv("MY_CMD", None)
 MY_HOME = os.getenv("MY_HOME", None)
 MY_LITE = os.getenv("MY_LITE", None)
+BACKUP_DIR = os.path.join(MY_HOME, "data", "conf", "backup")
+BACKUP_TARGET_DIR = os.path.join(BACKUP_DIR, time.strftime("%Y%m%d%H%M"))
 
 import sys
 import socket
@@ -32,6 +36,7 @@ import filecmp
 from subprocess import Popen, PIPE, STDOUT
 from datetime import datetime, timedelta
 from urllib import request as urllib2
+from shutil import copy2
 
 try:
     import psycopg
@@ -43,21 +48,25 @@ except Exception:
 from log_helpers import bcolours, characters
 import api, meta, ini
 
+isSILENT = False
+if os.environ.get("isSilent", "False") == "True":
+    isSILENT = True
 
 isJSON = False
 if os.environ.get("isJson", "False") == "True":
     isJSON = True
 
-pid_file = os.path.join(MY_HOME, "conf", "cli.pid")
+PID_FILE = os.path.join(MY_HOME, "data", "conf", "cli.pid")
 
 isTEST = False
 if os.environ.get("isTest", "False") == "True":
     isTEST = True
-isENT = False
-if os.environ.get("isEnt", "False") == "True":
-    isENT = True
+
 isSHOWDUPS = False
+
 isEXTENSIONS = False
+if os.environ.get("isExtensions", "False") == "True":
+    isEXTENSIONS = True
 
 ONE_DAY = 86400
 ONE_WEEK = ONE_DAY * 7
@@ -78,6 +87,59 @@ COMMAND = 15
 DEBUG = 10
 DEBUG2 = 9
 
+def validate_checksum(p_file_name, p_checksum_file_name):
+     checksum_from_file = get_file_checksum(p_file_name)
+     checksum_from_remote_file = read_file_string(p_checksum_file_name).rstrip()
+     checksum_from_remote = checksum_from_remote_file.split()[0]
+     global check_sum_match
+     check_sum_match = False
+     if checksum_from_remote == checksum_from_file:
+         check_sum_match = True
+         return check_sum_match
+     print_error("SHA512 CheckSum Mismatch")
+     return check_sum_match
+
+
+def retrieve_remote():
+    conf_dir = "data" + os.sep + "conf"
+
+    if not os.path.exists(BACKUP_DIR):
+        os.mkdir(BACKUP_DIR)
+    if not os.path.exists(BACKUP_TARGET_DIR):
+        os.mkdir(BACKUP_TARGET_DIR)
+    recent_version_sql = os.path.join(MY_HOME, "data", "conf", "versions.sql")
+    recent_local_db = os.path.join(MY_HOME, "data", "conf", "db_local.db")
+    if os.path.exists(recent_local_db):
+        copy2(recent_local_db, BACKUP_TARGET_DIR)
+    if os.path.exists(recent_version_sql):
+        copy2(recent_version_sql, BACKUP_TARGET_DIR)
+    remote_file = "versions.sql"
+    msg="Retrieving the remote list of latest component versions ..."
+    message(msg)
+    if not http_get_file(isJSON, remote_file, REPO, conf_dir, False, msg):
+        exit_cleanly(1)
+    msg=""
+
+
+    sql_file = conf_dir + os.sep + remote_file
+
+    if not http_get_file(
+        isJSON, remote_file + ".sha512", REPO, conf_dir, False, msg
+    ):
+        exit_cleanly(1)
+    msg = "Validating checksum file..."
+    my_logger.info(msg)
+    message(msg)
+    if not validate_checksum(sql_file, sql_file + ".sha512"):
+        exit_cleanly(1)
+
+    msg = "Updating local repository with remote entries..."
+    my_logger.info(msg)
+    message(msg)
+
+    if not process_sql_file(sql_file, isJSON):
+        exit_cleanly(1)
+
 
 def get_parsed_json(file_nm):
     parsed_json = None
@@ -85,7 +147,7 @@ def get_parsed_json(file_nm):
         with open(file_nm, "r") as f:
             parsed_json = json.load(f)
     except Exception as e:
-        util.exit_message(f"Unable to load json file: {file_nm}\n{e}")
+        exit_message(f"Unable to load json file: {file_nm}\n{e}")
 
     return(parsed_json)
 
@@ -106,7 +168,7 @@ my_logger = logging.getLogger()
 LOG_FILENAME = os.getenv('MY_LOGS')
 if not LOG_FILENAME:
    MY_HOME = os.getenv("MY_HOME")
-   LOG_FILENAME = os.path.join(MY_HOME,"logs","cli_log.out")
+   LOG_FILENAME = os.path.join(MY_HOME, "data", "logs","cli_log.out")
 LOG_DIRECTORY = os.path.split(LOG_FILENAME)[0]
 
 isDebug=0
@@ -175,6 +237,7 @@ def num_pg_minors(pg_minor, is_display=False):
 
 
 def num_spocks(pg, ver, is_display=False):
+    message(f"num_spocks(pg={pg}, ver={ver}, is_display={is_display})", "debug")
     try:
         c = cL.cursor()
         sql = (
@@ -182,9 +245,10 @@ def num_spocks(pg, ver, is_display=False):
             + f" WHERE component LIKE 'spock%{pg}' AND version LIKE '{ver}%'\n"
             + f"   AND platform LIKE '%{get_el_ver()}%'"
         )
-      
+        message(f"{sql}", "debug")
         c.execute(sql)
         data = c.fetchall()
+        message(f"{data}", "debug")
         c.close()
 
         kount = 0
@@ -284,7 +348,7 @@ def get_table_list(table, db, pg_v):
         w_table = str(l_tbl[0])
 
     sql = (
-        "SELECT table_schema || '.' || table_name as schema_table \n"
+        "SELECT table_schema || '.' || table_name as schema_table,('\"' ||table_schema || '\".\"' ||table_name||'\"')::regclass::oid as table_oid \n"
         + "  FROM information_schema.tables\n"
         + " WHERE TABLE_TYPE = 'BASE TABLE' \n"
         + " AND table_schema NOT IN ('spock','pg_catalog','information_schema')"
@@ -293,7 +357,7 @@ def get_table_list(table, db, pg_v):
     if w_schema:
         sql = sql + "\n   AND table_schema = '" + w_schema + "'"
 
-    sql = sql + "\n   AND table_name LIKE '" + w_table.replace("*", "%") + "'"
+    sql = sql + "\n   AND table_name ILIKE '" + w_table.replace("*", "%") + "'"
 
     con = get_pg_connection(pg_v, db, get_user())
 
@@ -497,6 +561,10 @@ def echo_cmd(cmd, echo=True, sleep_secs=0, host="", usr="", key=""):
             ssh_cmd = ssh_cmd + "-i " + str(key) + " "
 
         cmd = cmd.replace('"', '\\"')
+
+        if os.getenv("pgeDebug", "") > "":
+            cmd = f"{cmd} --debug"
+
         cmd = ssh_cmd + ' "' + str(cmd) + '"'
 
     isSilent = os.getenv("isSilent", "False")
@@ -516,6 +584,33 @@ def echo_cmd(cmd, echo=True, sleep_secs=0, host="", usr="", key=""):
 
 def psql_cmd(cmd, nc, db, pg, host, usr, key):
     echo_cmd(nc + ' psql "' + cmd + '" ' + db, host=host, usr=usr, key=key)
+
+
+def mk_cmd(cmd, echo=True, sleep_secs=0, host="", usr="", key=""):
+    if host > "":
+        ssh_cmd = "ssh -o StrictHostKeyChecking=no -q -t "
+        if usr > "":
+            ssh_cmd = ssh_cmd + str(usr) + "@"
+
+        ssh_cmd = ssh_cmd + str(host) + " "
+
+        if key > "":
+            ssh_cmd = ssh_cmd + "-i " + str(key) + " "
+
+        cmd = cmd.replace('"', '\\"')
+
+        if os.getenv("pgeDebug", "") > "":
+            cmd = f"{cmd} --debug"
+
+        cmd = ssh_cmd + ' "' + str(cmd) + '"'
+
+    return cmd
+
+
+def psql_cmd_output(cmd, nc, db, pg, host, usr, key):
+    cmd = mk_cmd(nc + ' psql "' + cmd + '" ' + db, host=host, usr=usr, key=key)
+    result = subprocess.run(cmd, text=True, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return result.stdout
 
 
 def print_exception(e, msg_type="error"):
@@ -650,7 +745,7 @@ def get_1st_ip():
 
 def run_native(component, bin_path, cmd):
     if not os.path.isfile(bin_path):
-        message(f"{component} not installed, missing '{bin_path}'", "error")
+        message(f"{component} not installed.", "error")
         return
 
     return echo_cmd(bin_path + " " + cmd)
@@ -768,6 +863,7 @@ def run_sql_cmd(p_pg, p_sql, p_display=False):
 
 
 def posix_unpack(file_nm):
+    cmd = f"tar -xf {file_nm}"
     rc = os.system(f"tar -xf {file_nm}")
     return(rc)
 
@@ -780,30 +876,75 @@ def restart_postgres(p_pg):
     time.sleep(4)
 
 
-def config_extension(p_pg, p_comp, create=True):
+def config_extension(p_pg=None, p_comp=None):
+    """ Configure an extension from it's metadata """
+    p_enable = True
+    isDISABLED = os.getenv("isDISABLED", "")
+    if isDISABLED == "True":
+       p_enable = False
 
-    extension_name, default_conf = meta.get_extension_meta(p_comp)
+    message(f"util.config_extension(p_pg={p_pg}, p_comp={p_comp}, enable={p_enable})", "debug")
 
-    for df in default_conf.split("|"):
-        df1 = df.strip()
-        df_l = df1.split("=")
-        if len(df_l) != 2:
-            message(f"skipping bad extension metadata \n  '{df_l}'")
-        else:
-            change_pgconf_keyval(p_pg, str(df_l[0]), str(df_l[1]), True)
+    if p_comp is None:
+        exit_message("p_comp must be specified in util.config_extension()")
 
-    if create:
-        create_extension(p_pg, extension_name, True)
+    pgV = p_pg
+    if p_pg is None:
+       pgV = p_comp[-4:]
+       message(f"defaulting p_pg to {pgV}")
+
+    if p_enable is False:
+        return(disable_extension(p_comp, pgV))
+    else:
+        update_component_state(p_comp, "Installed")
+
+    extension_name, is_preload, preload_name, default_conf = meta.get_extension_meta(p_comp)
+    if extension_name is None:
+        exit_message(f"Cannot find {p_comp} meta data", 1)
+
+    if default_conf > "":
+        for df in default_conf.split("|"):
+            df1 = df.strip()
+            df_l = df1.split("=")
+            if len(df_l) != 2:
+                message(f"skipping bad extension metadata \n  '{df_l}'")
+            else:
+                change_pgconf_keyval(p_pg, str(df_l[0]), str(df_l[1]), True)
+
+    rc = create_extension(p_pg, p_ext=preload_name, p_extension=extension_name, p_enable=True)
+    if rc is True:
+        return(0)
+
+    return(1)
 
 
-def create_extension(p_pg, p_ext, p_reboot=False, p_extension="", p_cascade=False):
-    isPreload = os.getenv("isPreload")
+def disable_extension(p_ext, p_pg):
+    message(f"util.disable_extension({p_ext}, {p_pg})", "debug")
 
-    if p_ext > " " and isPreload == "True":
+    extension_name, is_preload, preload_name, default_conf = meta.get_extension_meta(p_ext)
+    if extension_name is None:
+        util.exit_message(f"{p_ext} not found")
+
+    cmd = f"DROP EXTENSION IF EXISTS {extension_name}"
+    run_sql_cmd(p_pg, cmd, True)
+
+    if is_preload == "1":
+        remove_pgconf_keyval(p_pg, "shared_preload_libraries", preload_name)
+    
+    update_component_state(p_ext, "disabled")
+
+    return(0)
+
+
+def create_extension(p_pg, p_ext, p_reboot=False, p_extension="", p_enable=True):
+    message(f"util.create_extension(" + \
+        f"{p_pg}, {p_ext}, p_reboot={p_reboot}, p_extension='{p_extension}', p_enable={p_enable})", "debug")
+
+    if p_ext > " " and p_enable is True: 
         rc = change_pgconf_keyval(p_pg, "shared_preload_libraries", p_ext)
 
     isRestart = os.getenv("isRestart")
-    if p_reboot and isRestart == "True":
+    if (p_reboot is True) or (isRestart == "True"):
         restart_postgres(p_pg)
 
     print("")
@@ -813,15 +954,13 @@ def create_extension(p_pg, p_ext, p_reboot=False, p_extension="", p_cascade=Fals
     if p_extension == "none" or isRestart == "False":
         pass
     else:
-        create_ext_cmd(p_extension, p_cascade, p_pg)
+        create_ext_cmd(p_extension, p_pg)
 
     return True
 
 
-def create_ext_cmd(p_extension, p_cascade, p_pg):
-    cmd = "CREATE EXTENSION IF NOT EXISTS " + p_extension
-    if p_cascade:
-        cmd = cmd + " CASCADE"
+def create_ext_cmd(p_extension, p_pg):
+    cmd = f"CREATE EXTENSION IF NOT EXISTS {p_extension} CASCADE"
     run_sql_cmd(p_pg, cmd, True)
 
 
@@ -1187,8 +1326,9 @@ def message(p_msg, p_state="info", p_isJSON=None):
                 jsn_msg = p_msg
     elif log_level == "debug":
         log_level_num = 10
+        pgeDebug = str(os.getenv("pgeDebug", "0"))
         my_logger.debug(p_msg)
-        if log_level_num >= cur_level:
+        if (log_level_num >= cur_level) or (pgeDebug == "1"):
             if not p_isJSON:
                 print(bcolours.YELLOW + p_msg + bcolours.ENDC)
                 return
@@ -1373,9 +1513,9 @@ def get_stage():
 
 
 def get_value(p_section, p_key, p_value=""):
+    sql = "SELECT s_value FROM settings WHERE section = ? AND s_key = ?"
     try:
         c = cL.cursor()
-        sql = "SELECT s_value FROM settings WHERE section = ? AND s_key = ?"
         c.execute(sql, [p_section, p_key])
         data = c.fetchone()
         if data is None:
@@ -1753,6 +1893,32 @@ def put_pgconf_auto(p_pgver, p_conf):
     write_string_file(p_conf, config_file)
 
     return
+
+def get_pgconf_value(p_pgver, p_key):
+    config_file = get_pgconf_filename(p_pgver)
+    
+    if config_file == "":  
+        return False
+    
+    parameter_value = None
+
+    with open(config_file, 'r') as conf_file:
+        # Read each line of the file
+        for line in conf_file:
+            # Ignore comments and empty lines
+            if line.strip() == '' or line.strip().startswith('#'):
+                continue
+            # Split the line into parameter and value
+            parts = line.split('=')
+            if len(parts) == 2:
+                key = parts[0].strip()
+                value = parts[1].strip().split('#')[0].strip()  # Remove comments
+                # Check if the parameter matches the one we're looking for
+                if key == p_key:
+                    parameter_value = value
+                    break
+
+    return parameter_value
 
 
 def remove_pgconf_keyval(p_pgver, p_key, p_val=""):
@@ -2650,7 +2816,11 @@ def get_el_os():
 
 def get_el_ver():
     if platform.system() == "Darwin":
-        return "osx"
+        arch = getoutput("arch")
+        if arch == "i386":
+            return "osx-i386"
+        else:
+            return "osx"
 
     elv = os.getenv("ELV", None)
     if elv:
@@ -2685,7 +2855,10 @@ def is_el8():
 def get_os():
     if platform.system() == "Darwin":
         arch = getoutput("arch")
-        return "osx"
+        if arch == "i386":
+            return "osx-i386"
+        else:
+            return "osx"
 
     if platform.system() != "Linux":
         return "xxx"
@@ -2844,6 +3017,7 @@ def delete_file(p_file_name):
 
 
 def download_file(p_url, p_file):
+    message(f"util.download_file({p_url}, {p_file})", "debug")
     if os.path.exists(p_file):
         os.system("rm -f " + p_file)
 
@@ -2862,6 +3036,7 @@ def download_file(p_url, p_file):
 
 
 def unpack_file(p_file):
+    message(f"util.unpack_file({p_file})", "debug")
     if platform.system() in ("Linux", "Darwin"):
         rc = posix_unpack(os.getcwd() + os.sep + p_file)
         if rc == 0:
@@ -2922,6 +3097,7 @@ def get_url(url):
 def http_get_file(
     p_json, p_file_name, p_url, p_out_dir, p_display_status, p_msg, component_name=None
 ):
+    message(f"util.http_get_file({p_json}, {p_file_name}, {p_url}, {p_out_dir}, ... , {component_name})", "debug")
     file_exists = False
     file_name_complete = p_out_dir + os.sep + p_file_name
     file_name_partial = file_name_complete + ".part"
@@ -2961,7 +3137,7 @@ def http_get_file(
             if (
                 not p_file_name.endswith(".txt")
                 and not p_file_name.startswith("install.py")
-                and not os.path.isfile(pid_file)
+                and not os.path.isfile(PID_FILE)
             ):
                 raise KeyboardInterrupt("No lock file exists.")
             buffer = u.read(block_sz)
@@ -3138,7 +3314,7 @@ def is_server(p_comp):
         if data is None:
             return False
     except Exception as e:
-        fatal_sql_error(e, sql, "get_comp_state()")
+        fatal_sql_error(e, sql, "is_server()")
 
     pidfile = data[0]
     port = data[1]
@@ -3168,7 +3344,7 @@ def get_comp_datadir(p_comp):
         if data is None:
             return "NotInstalled"
     except Exception as e:
-        fatal_sql_error(e, sql, "get_comp_state()")
+        fatal_sql_error(e, sql, "get_comp_datadir()")
     if data[0] is None:
         return ""
     return str(data[0])
@@ -3325,7 +3501,7 @@ def create_manifest(ext_comp, parent_comp, upgrade=None):
 
     manifest_file_name = ext_comp + ".manifest"
 
-    manifest_file_path = os.path.join(MY_HOME, "conf", manifest_file_name)
+    manifest_file_path = os.path.join(MY_HOME, "data", "conf", manifest_file_name)
 
     try:
         with open(manifest_file_path, "w") as f:
@@ -3633,38 +3809,62 @@ def check_comp(p_comp, p_port, p_kount, check_status=False):
     return
 
 
-# run external scripts #######################################
 def run_script(componentName, scriptName, scriptParm):
-    installed_comp_list = meta.get_component_list()
-    if componentName not in installed_comp_list:
-        return
+    """ run external scripts (or metadata equivalents for extensions) """
+    message(f"util.run_script({componentName}, {scriptName}, {scriptParm})", "debug")
+    ## if componentName not in installed_comp_list:
+    ##    return  
 
     componentDir = componentName
+    is_ext = meta.is_extension(componentName)
+    if is_ext: 
+        componentDir = componentName[-4:]
+        componentName = componentName[:-5]
+
+    message(f"  - componentDir={componentDir}, componentName={componentName}, is_ext={is_ext}", "debug")
 
     cmd = ""
     scriptFile = os.path.join(MY_HOME, componentDir, scriptName)
+
     if os.path.isfile(scriptFile):
         cmd = "bash"
-    else:
-        cmd = sys.executable + " -u"
-        scriptFile = scriptFile + ".py"
+    else:   
+        cmd = sys.executable + " -u" 
+        scriptFile = scriptFile + ".py" 
 
-    rc = 0
+    scriptFileFound = False 
+    if os.path.isfile(scriptFile):
+        scriptFileFound = True
+
+    message(f"  - scriptFile='{scriptFile}', {scriptFileFound}", "debug")
+
+    rc = 0  
     compState = get_comp_state(componentName)
-    if compState == "Enabled" and os.path.isfile(scriptFile):
-        run = cmd + " " + scriptFile + " " + scriptParm
-        rc = os.system(run)
+    message(f"  - compState={compState}", "debug")
+
+    if is_ext and scriptName.startswith("disable"):
+        rc = disable_extension(p_pg=componentDir, p_ext=componentName)
+        compState = "Disabled"
+
+    if compState in ["Enabled", "NotInstalled"]:
+        if is_ext: 
+            rc = config_extension(p_pg=componentDir, p_comp=componentName)
+        else:
+            if scriptFileFound is True:
+                run = f"{cmd}  {scriptFile}  {scriptParm}"
+                rc = os.system(run)
 
     if rc != 0:
-        print("Error running " + scriptName)
+        print(f"Error running {scriptName}")
         exit_cleanly(1)
 
-    return
+    return 
 
 
 def update_component_state(p_app, p_mode, p_ver=None):
-    db_local = MY_LITE
-    connL = sqlite3.connect(db_local)
+    is_ext = meta.is_extension(p_app) 
+
+    message(f"util.update_component_state({p_app}, {p_mode}, {p_ver}, is_ext={is_ext})", "debug")
 
     new_state = "Disabled"
     if p_mode == "enable":
@@ -3680,11 +3880,8 @@ def update_component_state(p_app, p_mode, p_ver=None):
     if current_state == new_state:
         return
 
-    if p_mode == "disable" or p_mode == "remove":
-        run_script(p_app, "stop-" + p_app, "kill")
-
     try:
-        c = connL.cursor()
+        c = cL.cursor()
 
         if p_mode in ("enable", "disable"):
             ver = meta.get_version(p_app)
@@ -3715,7 +3912,7 @@ def update_component_state(p_app, p_mode, p_ver=None):
                 ver = meta.get_current_version(p_app)
             c.execute(sql, [p_app, ver])
 
-        connL.commit()
+        cL.commit()
         c.close()
     except Exception as e:
         fatal_sql_error(e, sql, "update_component_state()")
@@ -3724,6 +3921,79 @@ def update_component_state(p_app, p_mode, p_ver=None):
     message(msg, "debug", isJSON)
     return
 
+bold_start = "\033[1m"
+bold_end = "\033[0m"
+
+def echo_action(action, status=None, e=False):
+
+    now = datetime.now()
+    t = now.strftime('%B %d, %Y, %H:%M:%S')
+    
+    if status is None:
+        sys.stdout.write(f"{t}: {action}... ")
+        sys.stdout.flush()
+    else:
+        sys.stdout.write("\r")
+        if status.lower() == "ok":
+            sys.stdout.write(f"{t}: {action}... [OK]\n")
+        else:
+            sys.stdout.write(f"{t}: {action}... [Failed]\n")
+            if e == True:
+                exit(1)
+        sys.stdout.flush()
+
+def echo_message(msg, bold=False, level="info"):
+    now = datetime.now()
+    t = now.strftime('%B %d, %Y, %H:%M:%S')
+
+    if bold == True:
+        message(t + ": " + bold_start + msg + bold_end, level)
+    else:
+        message(t + ": " + msg,level)
+
+    if level == "error":
+        exit(1)
+
+def echo_node(data):
+    nodes = data.get('nodes', [])
+    for node in nodes:
+        print('#' * 30)
+        for key, value in node.items():
+            print(bold_start + f"* {key}:" + bold_end +"{value}")
+        print(bold_start + '#'*30 + bold_end)
+
+def run_command(command_args, max_attempts=1, timeout=None, capture_output=True, env=None, cwd=None, verbose=False):
+    attempts = 0
+    output, error = "", ""
+
+    while attempts < max_attempts:
+        try:
+            attempts += 1
+            result = subprocess.run(command_args, check=True, text=True,
+                                    capture_output=capture_output, timeout=timeout,
+                                    env=env, cwd=cwd)
+            if capture_output:
+                output = result.stdout
+                error = result.stderr
+            if verbose:
+                print(f"Command executed successfully.")
+            return {"success": True, "output": output, "error": error, "attempts": attempts}
+
+        except subprocess.CalledProcessError as e:
+            error = e.stderr if capture_output else str(e)
+            if verbose:
+                print(f"Error executing command: {error}")
+            time.sleep(1)  # Simple backoff strategy
+        except subprocess.TimeoutExpired as e:
+            error = f"Command timed out after {timeout} seconds."
+            if verbose:
+                print(f"Attempt {attempts}: {error}")
+            break  # No retry after timeout
+
+    return {"success": False, "output": output, "error": error, "attempts": attempts}
 
 # MAINLINE ################################################################
 cL = sqlite3.connect(MY_LITE, check_same_thread=False)
+REPO = get_value("GLOBAL", "REPO")
+
+

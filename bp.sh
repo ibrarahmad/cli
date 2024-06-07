@@ -10,7 +10,7 @@ outp="out/posix"
 clusterDir=$outp/cluster
 if [ -d $clusterDir ]; then
   echo "Removing local clusters..."
-  $outp/$api cluster localhost-destroy all
+  $outp/$api localhost cluster-destroy all
 fi
 
 if [ -d $outp ]; then
@@ -30,7 +30,14 @@ cd $outp
 
 ./$api set GLOBAL REPO http://localhost:8000
 ./$api info
-./$api install ctlibs
+if [ `arch` == "i386" ]; then
+  echo "Skipping CTLIBS for `arch`"
+else
+  if [ ! -f $OUT/ctlibs-el9-arm.tgz ]; then
+    cp -pv $IN/ctlibs/*.tgz $OUT/.
+  fi
+  ./$api install ctlibs
+fi
 
 if [ ! "$1" == "" ]; then
   ./$api install $comp

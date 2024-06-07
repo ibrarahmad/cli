@@ -3,7 +3,7 @@
 
 
 import sys, os, subprocess, time
-import util, fire, psycopg
+import util, fire, db, psycopg
 
 nc = "./pgedge "
 
@@ -99,6 +99,26 @@ def node_drop_interface(node_name, interface_name, db, pg=None):
     sys.exit(0)
 
 
+def extract_from_dsn(dsn):
+    host = None
+    port = None
+    user = None
+    if dsn:
+        # Split the DSN string by semicolons to separate key-value pairs
+        dsn_parts = dsn.split(" ")
+        for part in dsn_parts:
+            if part.startswith("host="):
+                host = part.split("=")[1]
+            elif part.startswith("port="):
+                port = part.split("=")[1]
+            # Check if the part contains 'user='
+            elif part.startswith("user="):
+                # Extract the user information after 'user='
+                user = part.split("=")[1]
+          
+    return host, port, user
+
+
 def node_create(node_name, dsn, db, pg=None):
     """Define a node for spock.
 
@@ -116,17 +136,43 @@ def node_create(node_name, dsn, db, pg=None):
         Example: demo
     """
     pg_v = util.get_pg_v(pg)
+
+    # Extract user from DSN
+    host, port, user = extract_from_dsn(dsn)
+    repl_usr = util.get_user()   
+    if port is None:
+        port = util.get_column("port", pg_v)
+
+    # Check if the given role exists and is a replication user
+    try:
+        conn = psycopg.connect(dbname=db, user=repl_usr, host=host, port=port, autocommit=False)
+        cur = conn.cursor()
+
+        # Get the operating system user with rolreplication='t' and rolbypassrls='t'
+        cur.execute(f"SELECT rolreplication, rolbypassrls FROM pg_roles WHERE rolname = '{user}'")
+        try:
+            repl, bypass = cur.fetchone()
+        except:
+            util.exit_message(f"User {user} not found. HINT: Ensure that user provided is a replication user - try user {repl_usr}")
+
+        if not repl or not bypass:
+            util.exit_message(f"User {user} is not a replication user. HINT: Ensure that user provided is a replication user - try user {repl_usr}")
+        conn.close()
+    except psycopg.Error as e:
+        util.exit_message("Could not connect to database with this dsn")
+
     sql = (
         "SELECT spock.node_create("
         + get_eq("node_name", node_name, ", ")
         + get_eq("dsn", dsn, ")")
     )
     util.run_psyco_sql(pg_v, db, sql)
+  
     if node_name[0] == "n" and node_name[1].isdigit():
-        cmd = f"db guc-set snowflake.node {node_name[1]}"
-        os.system(nc + cmd)
-    sys.exit(0)
+       cmd = f"db guc-set snowflake.node {node_name[1]}"
+       os.system(nc + cmd)
 
+    sys.exit(0)
 
 def node_drop(node_name, db, pg=None):
     """Remove a spock node.
@@ -377,6 +423,37 @@ def sub_create(
         :param apply_delay: The amount of time to delay the replication.
     """
     pg_v = util.get_pg_v(pg)
+    
+    # Extract user from provider DSN
+    host, port, user = extract_from_dsn(provider_dsn)
+    repl_usr = util.get_user()
+    if port is None:
+        port = util.get_column("port", pg_v)
+    
+    # Check if the given role exists and is a replication user
+    try:
+        conn = psycopg.connect(
+            dbname=db, 
+            user=repl_usr, 
+            host=host, 
+            port=port, 
+            autocommit=False
+        )
+        cur = conn.cursor()
+
+        # Get the operating system user with rolreplication='t' and rolbypassrls='t'
+        cur.execute(f"SELECT rolreplication, rolbypassrls FROM pg_roles WHERE rolname = '{user}'")
+        try:
+            repl, bypass = cur.fetchone()
+        except:
+            util.exit_message(f"User {user} not found. HINT: Ensure that user provided is a replication user - try user {repl_usr}")
+
+        if not repl or not bypass:
+            util.exit_message(f"User {user} is not a replication user. HINT: Ensure that user provided is a replication user - try user {repl_usr}")
+        conn.close()
+    except psycopg.Error as e:
+        util.exit_message("Could not connect to database with this dsn")
+    
     sql = (
         "SELECT spock.sub_create("
         + get_eq("subscription_name", subscription_name, ", ")
@@ -394,6 +471,8 @@ def sub_create(
         + get_eq("apply_delay", apply_delay, ")")
     )
     util.run_psyco_sql(pg_v, db, sql)
+  
+   
     sys.exit(0)
 
 
@@ -435,7 +514,7 @@ def sub_enable(subscription_name, db, immediate=False, pg=None):
 
 
 def sub_disable(subscription_name, db, immediate=False, pg=None):
-    """Put a subscription on hold and disconnect from provider.
+    """Put sub on hold & disconnect from provider.
    
         Disable a subscription by putting it on hold and disconnect from provider. \n
         Example: spock sub-disable sub_n2n1 demo
@@ -640,28 +719,11 @@ def sub_wait_for_sync(subscription_name, db, pg=None):
 
 
 def set_readonly(readonly="off", pg=None):
-    """Turn PG read-only mode 'on' or 'off'."""
+    """DEPRECATED: use db.set_readonly() instead"""
 
-    if readonly not in ("on", "off"):
-        util.exit_message("  readonly flag must be 'off' or 'on'")
+    util.message("spock.set_readonly() deprecated, use db.set_readonly() instead", "warning")
 
-    pg_v = util.get_pg_v(pg)
-
-    try:
-        con = util.get_pg_connection(pg_v, "postgres", util.get_user())
-        cur = con.cursor(row_factory=psycopg.rows.dict_row)
-
-        util.change_pgconf_keyval(pg_v, "default_transaction_read_only", readonly, True)
-
-        util.message("reloading postgresql.conf")
-        cur.execute("SELECT pg_reload_conf()")
-        cur.close()
-        con.close()
-
-    except Exception as e:
-        util.exit_exception(e)
-
-    sys.exit(0)
+    return(db.set_readonly(readonly, pg))
 
 
 def get_pii_cols(db, schema=None, pg=None):
@@ -714,10 +776,11 @@ def repset_add_table(
 
     for tbl in tbls:
         tab = str(tbl[0])
+        oid = str(tbl[1])
         sql = (
             "SELECT spock.repset_add_table("
             + get_eq("set_name", replication_set, ", ")
-            + get_eq("relation", tab, ", ")
+            + get_eq("relation", oid, ", ")
             + get_eq("synchronize_data", synchronize_data, ", ")
         )
 
@@ -978,4 +1041,5 @@ if __name__ == "__main__":
             "set-readonly": set_readonly,
         }
     )
+
 
