@@ -9,6 +9,7 @@ import json
 import sys
 from datetime import datetime
 from tabulate import tabulate
+import shlex
 
 thisDir = os.path.dirname(os.path.realpath(__file__))
 
@@ -311,15 +312,18 @@ def modify_postgresql_conf(stanza):
     util.change_pgconf_keyval(pgV(), "archive_command", aCmd, p_replace=True)
     util.change_pgconf_keyval(pgV(), "archive_mode", "on", p_replace=True)
 
-def run_external_command(*args):
+def run_external_command(command, **kwargs):
     """Execute an external pgBackRest command."""
 
-    command = args
-    result = utilx.run_command(command)
-    if result["success"]:
-        util.message("Command executed successfully.")
-    else:
-        utilx.ereport('Error', 'Command execution failed', detail=result["error"])
+    # Convert keys back to their original format
+    full_command = ["pgbackrest", command]
+    for key, value in kwargs.items():
+        original_key = key.replace('_', '-')
+        full_command.append(f"--{original_key}")
+        full_command.append(value)
+
+    util.run_command(full_command, verbose=True)
+
 
 def validate_stanza_config(stanza_name, config):
     """
