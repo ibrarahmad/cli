@@ -899,13 +899,18 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
         key=n["ssh_key"],
         verbose=False
     )
-    args = (f' --repo1-path /var/lib/pgbackrest/{s["name"]} --repo1-cipher-pass '
-            'pgedge  --repo1-host-user {n["os_user"]}  --pg1-path {s["path"]}'
-            '/pgedge/data/{stanza} --pg1-port {s["port"]} ')
+    
+    repo1_path = f"/var/lib/pgbackrest/{s['name']}"
+    os_user = n["os_user"]
+    port = s["port"]
+
+    args = (f'stanza-create --repo1-path {repo1_path} --stanza {stanza} '
+            f'--repo1-host-user {os_user} --pg1-path {repo1_path}/pgedge/data/{stanza} '
+            f'--pg1-port {port}')
+    print(args)
 
     if stanza_create:
-        cmd = f"{s['path']}/pgedge/pgedge backrest create-stanza {stanza} {args}"
-        print(cmd)
+        cmd = f"{s['path']}/pgedge/pgedge backrest command '{args}'"
         util.run_rcommand(
             cmd,
             f"Creating stanza {stanza}",
@@ -914,7 +919,7 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
             key=n["ssh_key"],
             verbose=False
         )
-    
+
     if backup_id == " ":
         cmd1 = f"{s['path']}/pgedge/pgedge backrest backup {stanza} {args}"
         util.run_rcommand(

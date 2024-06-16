@@ -315,14 +315,34 @@ def modify_postgresql_conf(stanza):
 def run_external_command(command, **kwargs):
     """Execute an external pgBackRest command."""
 
-    # Convert keys back to their original format
     full_command = ["pgbackrest", command]
-    for key, value in kwargs.items():
-        original_key = key.replace('_', '-')
-        full_command.append(f"--{original_key}")
-        full_command.append(value)
 
-    util.run_command(full_command, verbose=True)
+    for key, value in kwargs.items():
+        if key and value:
+            if not key.startswith('--'):
+                key = key.replace('_', '-')
+                full_command.append(f"--{key}")
+            else:
+                full_command.append(key)
+            full_command.append(str(value))  # Convert value to string
+        else:
+            print(f"Invalid key-value pair ignored: key={key}, value={value}")
+
+    print(f"Full command to be executed: {' '.join(full_command)}")
+
+    try:
+        result = subprocess.run(
+            full_command,
+            check=True,
+            text=True,
+            capture_output=True
+        )
+        print("Command executed successfully.")
+        print(result.stdout)
+    except subprocess.CalledProcessError as e:
+        print(f"Command execution failed: {e.stderr}")
+    except Exception as e:
+        print(f"Exception occurred during command execution: {str(e)}")
 
 
 def validate_stanza_config(stanza_name, config):
