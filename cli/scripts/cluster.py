@@ -899,18 +899,18 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
         key=n["ssh_key"],
         verbose=False
     )
-    
+
     repo1_path = f"/var/lib/pgbackrest/{s['name']}"
     os_user = n["os_user"]
     port = s["port"]
+    pg1_path = f"{s['path']}/pgedge/data/{stanza}"
 
-    args = (f'stanza-create --repo1-path {repo1_path} --stanza {stanza} '
-            f'--repo1-host-user {os_user} --pg1-path {repo1_path}/pgedge/data/{stanza} '
-            f'--pg1-port {port}')
-    print(args)
+    args = (f'--repo1-path {repo1_path} --stanza {stanza} '
+            f'--pg1-path {pg1_path} '
+            f'--pg1-port {port} --db-socket-path /tmp')
 
     if stanza_create:
-        cmd = f"{s['path']}/pgedge/pgedge backrest command '{args}'"
+        cmd = f"{s['path']}/pgedge/pgedge backrest command stanza-create '{args}'"
         util.run_rcommand(
             cmd,
             f"Creating stanza {stanza}",
@@ -919,9 +919,9 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
             key=n["ssh_key"],
             verbose=False
         )
-
+    args= args + f' --repo1-retention-full=7'
     if backup_id == " ":
-        cmd1 = f"{s['path']}/pgedge/pgedge backrest backup {stanza} {args}"
+        cmd = f"{s['path']}/pgedge/pgedge backrest command backup '{args}'"
         util.run_rcommand(
             cmd,
             f"Creating full backup",
@@ -930,7 +930,7 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
             key=n["ssh_key"],
             verbose=False
         )
-    
+
     util.echo_node(n)
     cmd = f"{n['path']}/pgedge/pgedge install backrest"
     util.run_rcommand(
@@ -942,20 +942,20 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
         verbose=False
     )
 
-    args = (f'--repo1-path /var/lib/pgbackrest/{s["name"]} --repo1-cipher-pass '
-            'pgedge --repo1-host {s["ip_address"]} --repo1-host-user {n["os_user"]} '
-            '--pg1-path0 {s["path"]}/pgedge/data/{stanza} --pg1-port0 {s["port"]} ')
-    cmd1 = (f'{n["path"]}/pgedge/pgedge/pgedge backrest create-replica '
-            f'--stanza={stanza} --data_dir={n["path"]}/pgedge/replica/{stanza} {args}')
+    args = (f'--repo1-path /var/lib/pgbackrest/{s["name"]} '
+            f'--repo1-host {s["ip_address"]} --repo1-host-user {n["os_user"]} ')
+
+    cmd1 = (f'{n["path"]}/pgedge/pgedge backrest command restore '
+            f'--stanza={stanza} --pg1-path={n["path"]}/pgedge/replica/{stanza} {args}')
     util.run_rcommand(
         cmd1,
-        f"Creating read replica",
+        f"Restoring backup on new node",
         host=n["ip_address"],
         usr=n["os_user"],
         key=n["ssh_key"],
         verbose=False
     )
-    
+
     manage_node(n, "stop")
 
     print("Removing old data directory")

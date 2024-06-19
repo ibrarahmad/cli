@@ -384,6 +384,8 @@ if __name__ == "__main__":
         "list-backups": list_backups,
         "show-config": show_config,
         "save-config": save_config,
+        "set_hbaconf": modify_hba_conf,
+        "set_postgresqlconf": modify_postgresql_conf,
         "command": run_external_command,
     })
 

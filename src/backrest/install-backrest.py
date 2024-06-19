@@ -148,9 +148,6 @@ def setup_pgbackrest_conf():
     osSys("sudo mkdir -p /etc/pgbackrest /etc/pgbackrest/conf.d")
     save_config()
     osSys(f"sudo chown {usrUsr} /var/log/pgbackrest")
-    osSys("sudo chmod 640 /etc/pgbackrest/pgbackrest.conf")
-    osSys(f"sudo chown {usrUsr} /etc/pgbackrest/pgbackrest.conf")
-
     osSys("sudo mkdir -p /var/lib/pgbackrest")
     osSys("sudo chmod 750 /var/lib/pgbackrest")
     osSys(f"sudo chown -R {usrUsr}:{usrUsr} /var/lib/pgbackrest")
