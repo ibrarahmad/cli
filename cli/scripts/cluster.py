@@ -919,7 +919,7 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
             key=n["ssh_key"],
             verbose=False
         )
-    cmd = f"{s['path']}/pgedge/pgedge  backrest set_postgresqlconf {stanza} {pg1_path} s3"
+    cmd = f"{s['path']}/pgedge/pgedge  backrest set_postgresqlconf {stanza} {pg1_path} {repo1_path} s3"
     util.run_rcommand(
         cmd,
         f"Modifying postgresql.conf file",
