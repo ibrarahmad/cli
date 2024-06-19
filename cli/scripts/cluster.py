@@ -919,7 +919,7 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
             key=n["ssh_key"],
             verbose=False
         )
-    cmd = f"{s['path']}/pgedge/pgedge  backrest set_postgresqlconf {stanza}"
+    cmd = f"{s['path']}/pgedge/pgedge  backrest set_postgresqlconf {stanza} {pg1_path} s3"
     util.run_rcommand(
         cmd,
         f"Modifying postgresql.conf file",
@@ -940,7 +940,6 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
     cmd = "select pg_reload_conf()"
     util.psql_cmd(cmd, f"{s['path']}/pgedge/pgedge", dbname, stanza,
                          host=s["ip_address"], usr=n["os_user"], key=n["ssh_key"])
-    print("----------------------------")
     args= args + f' --repo1-retention-full=7 --type=full'
     if backup_id == " ":
         cmd = f"{s['path']}/pgedge/pgedge backrest command backup '{args}'"
