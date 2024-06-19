@@ -205,7 +205,6 @@ def main():
     
     print_header("Configuring pgbackrest")
     configure_backup_settings()
-    generate_cipher_pass()
     setup_pgbackrest_links()
     usrUsr = f"{util.get_user()}:{util.get_user()}"
     osSys("pgbackrest version")
