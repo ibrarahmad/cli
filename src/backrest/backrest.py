@@ -308,7 +308,7 @@ def modify_postgresql_conf(stanza, pg1_path, repo1_type):
     """
     Modify 'postgresql.conf' to integrate with pgbackrest.
     """
-    aCmd = f"pgbackrest --stanza={stanza} --pg1-path=pg1_path --repo1-type={repo1_type} archive-push %p"
+    aCmd = f"pgbackrest --stanza={stanza} --pg1-path={pg1_path} --repo1-type={repo1_type} archive-push %p"
     util.change_pgconf_keyval(pgV(), "archive_command", aCmd, p_replace=True)
     util.change_pgconf_keyval(pgV(), "archive_mode", "on", p_replace=True)
 
