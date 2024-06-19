@@ -92,47 +92,6 @@ def show_config():
     print("#" * (max_key_length + 40))
 
 
-def save_config(filename="pgbackrest.conf"):
-    """Save the current pgbackrest configuration to a file in standard format."""
-    config = fetch_backup_config()
-    lines = []
-
-    # Write global settings
-    if config["global"]:
-        lines.append("[global]")
-        for key, value in config["global"].items():
-            if key == "compress-level":
-                continue  # Handle this key separately in its own section
-            if value != " ":
-                lines.append(f"{key} = {value}")
-        lines.append("")  # Add a newline for separation
-
-        # Handle global:archive-push specifically if needed
-        if "compress-level" in config["global"]:
-            lines.append("[global:archive-push]")
-            lines.append(f"compress-level = {config['global']['compress-level']}")
-            lines.append("")  # Add a newline for separation
-
-    # Write stanza sections
-    stanza_count = int(config["main"].get("stanza_count", 1))
-    for i in range(stanza_count):
-        stanza_name = util.get_value("BACKUP", f"stanza{i}")
-        if stanza_name in config["stanza"]:
-            lines.append(f"[{stanza_name}]")
-            for key, value in config["stanza"][stanza_name].items():
-                clean_key = key.replace(str(i), '')  # Remove the index from key names
-                if value != " ":
-                    lines.append(f"{clean_key} = {value}")
-            lines.append("")  # Add a newline for separation
-
-    # Write the configuration to file
-    with open(f"{thisDir}/{filename}", "w") as f:
-        f.write("\n".join(lines))
-    util.message(f"Configuration saved to {thisDir}/{filename}.")
-    osSys(f"sudo cp {thisDir}/{filename} /etc/pgbackrest/")
-
-    return filename
-
 def backup(stanza, type="full", verbose=True):
     """Perform a backup of a database cluster.
 
@@ -230,27 +189,19 @@ def change_pgconf_keyval(config_path, key, value):
 def create_replica(stanza, data_dir=None, backup_label=None, verbose=True):
     """Create a replica by restoring from a backup and configure it as a standby server."""
     if restore(stanza, data_dir, backup_label, recovery_target_time=None, verbose=verbose) == True:
-        _configure_replica(stanza, data_dir, verbose)
+        configure_replica_local(stanza, data_dir)
 
-def _configure_replica(stanza, pg_data_dir=None, verbose=True):
-    """Configure PostgreSQL to run as a replica (standby server)."""
-    config = fetch_backup_config()
+def configure_replica(stanza, pg1_path, pg1_host, pg1_port, pg1_user):
+    conf_file = os.path.join(pg1_path, "postgresql.conf")
+    standby_signal = os.path.join(pg1_path, "standby.signal")
 
-    if pg_data_dir == None:
-        pg_data_dir = os.path.join(config["main"]["restore_path"], stanza, "data")
-    
-    conf_file = os.path.join(pg_data_dir, "postgresql.conf")
-    standby_signal = os.path.join(pg_data_dir, "standby.signal")
-
-    # Connection info for the primary server should be configured prior to calling this function
-    primary_conninfo = f"host={config['global']['repo1-host']} port={config['stanza'][stanza]['pg1-port']} user={config['stanza'][stanza]['pg1-user']}"
+    primary_conninfo = f"host={pg1_host} port={pg1_port} user={pg1_user}"
    
-    # Configure postgresql.conf for replica
     changes = {
         "hot_standby": "on",
         "primary_conninfo": primary_conninfo,
-        "port": f"{config['stanza'][stanza]['pg1-port']}",
-        "log_directory": os.path.join(pg_data_dir, "log"),
+        "port": f"{'pg1-port'}",
+        "log_directory": os.path.join(pg1_path, "log"),
         "archive_command": "cd .",
         "archive_mode": "on"
     }
@@ -258,8 +209,16 @@ def _configure_replica(stanza, pg_data_dir=None, verbose=True):
     for key, value in changes.items():
         change_pgconf_keyval(conf_file, key, value)
     
-    # Create an empty standby.signal file to trigger standby mode
     open(standby_signal, 'a').close()
+
+def configure_replica_local(stanza):
+    config = fetch_backup_config()
+    pg1_path = os.path.join(config["main"]["restore_path"], stanza, "data")
+    pg1_host = f"{config['global']['repo1-host']}"
+    pg1_port = f"{config['stanza'][stanza]['pg1-port']}"
+    pg1_user = f"{config['stanza'][stanza]['pg1-user']}"
+
+    configure_replica(stanza, pg1_path, pg1_host, pg1_port, pg1_user)
 
 def list_backups():
     """List all available backups using pgBackRest."""
@@ -381,9 +340,9 @@ if __name__ == "__main__":
         "pitr": pitr,
         "create-stanza": create_stanza,
         "create-replica": create_replica,
+        "configure_replica": configure_replica,
         "list-backups": list_backups,
         "show-config": show_config,
-        "save-config": save_config,
         "set_hbaconf": modify_hba_conf,
         "set_postgresqlconf": modify_postgresql_conf,
         "command": run_external_command,

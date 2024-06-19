@@ -939,9 +939,9 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
     )
     cmd = "select pg_reload_conf()"
     util.psql_cmd(cmd, f"{s['path']}/pgedge/pgedge", dbname, stanza,
-                         host=s["ip_address"], usr=n["os_user"], key=n["ssh_key"])
+                         host=s["ip_address"], usr=s["os_user"], key=s["ssh_key"])
     args= args + f' --repo1-retention-full=7 --type=full'
-    if backup_id == " ":
+    if backup_id == " d":
         cmd = f"{s['path']}/pgedge/pgedge backrest command backup '{args}'"
         util.run_rcommand(
             cmd,
@@ -963,8 +963,7 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
         verbose=False
     )
 
-    args = (f'--repo1-path /var/lib/pgbackrest/{s["name"]} '
-            f'--repo1-host {s["ip_address"]} --repo1-host-user {n["os_user"]} ')
+    args = (f'--repo1-path /var/lib/pgbackrest/{s["name"]} ')
 
     cmd1 = (f'{n["path"]}/pgedge/pgedge backrest command restore '
             f'--stanza={stanza} --pg1-path={n["path"]}/pgedge/replica/{stanza} {args}')
@@ -979,7 +978,6 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
 
     manage_node(n, "stop")
 
-    print("Removing old data directory")
     cmd = f'rm -rf {n["path"]}/pgedge/data/{stanza}'
     util.run_rcommand(
         cmd,
@@ -990,7 +988,6 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
         verbose=False
     )
 
-    print("Moving new data directory to old")
     cmd = f'mv {n["path"]}/pgedge/replica/{stanza} {n["path"]}/pgedge/data/'
     util.run_rcommand(
         cmd,
@@ -1044,8 +1041,17 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
         key=n["ssh_key"],
         verbose=False
     )
-    
-    print(f"\n# Starting new cluster\n")
+    cmd = (f'{n["path"]}/pgedge/pgedge backrest configure_replica {stanza} '
+        f'{n["path"]}/pgedge/data/ {n["ip_address"]} {n["port"]} {n[os_user]}')
+    util.run_rcommand(
+        cmd,
+        f"Configuring PITR on replica",
+        host=n["ip_address"],
+        usr=n["os_user"],
+        key=n["ssh_key"],
+        verbose=False
+    )
+ 
     manage_node(n, "start")
     check_cluster_lag(n, dbname, stanza)
     terminate_cluster_transactions(nodes, dbname, stanza)
@@ -1122,7 +1128,7 @@ def manage_node(node, action):
     if action == 'start':
         cmd = (f"cd {node['path']}/pgedge/; "
                f"./pgedge config pg16 --port={node['port']}; "
-               f"./pgedge start")
+               f"./pgedge start;")
     else:
         cmd = (f"cd {node['path']}/pgedge/; "
                f"./pgedge stop")
@@ -1192,6 +1198,33 @@ def terminate_cluster_transactions(nodes, dbname, stanza):
                               usr=node["os_user"], key=node["ssh_key"])
     util.echo_action("Cluster transactions terminated successfully", "ok")
 
+def extract_psql_value(psql_output: str, alias: str) -> str:
+    lines = psql_output.split('\n')
+    if len(lines) < 3:
+        return ""
+    print(psql_output)
+    header_line = lines[0]
+    headers = [header.strip() for header in header_line.split('|')]
+
+    alias_index = -1
+    for i, header in enumerate(headers):
+        if header == alias:
+            alias_index = i
+            break
+
+    if alias_index == -1:
+        return ""
+
+    for line in lines[2:]:
+        if line.strip() == "":
+            continue
+        columns = [column.strip() for column in line.split('|')]
+        if len(columns) > alias_index:
+            return columns[alias_index]
+
+    return ""
+
+
 def parse_query_output(output):
     # Split the output into lines
     lines = output.split('\n')
@@ -1228,36 +1261,43 @@ def set_cluster_readonly(nodes, readonly, dbname, stanza):
                               usr=node["os_user"], key=node["ssh_key"])
     util.echo_action(f"{action} readonly mode from cluster", "ok")
 
-def check_cluster_lag(n, dbname, stanza):
-    """
-    Monitors the replication lag of a new cluster node until it catches up.
-    """
+def check_cluster_lag(n, dbname, stanza, timeout=600, interval=1):
     util.echo_action("Checking lag time of new cluster")
 
-    cmd = """
-    SELECT
-        pg_last_wal_receive_lsn() AS last_receive_lsn,
-        pg_last_wal_replay_lsn() AS last_replay_lsn,
-        pg_wal_lsn_diff(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn()) 
-            AS lag_bytes
+    cmd_lag = """
+    SELECT COALESCE(
+    (SELECT pg_wal_lsn_diff(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())),
+    0
+    ) AS lag_bytes
     """
 
+    start_time = time.time()
     lag_bytes = 1
+
     while lag_bytes > 0:
-        time.sleep(1)
+        if time.time() - start_time > timeout:
+            util.echo_action("Checking lag time of new cluster", "timeout")
+            return
+
+        time.sleep(interval)
         op = util.psql_cmd_output(
-            cmd, f"{n['path']}/pgedge/pgedge", dbname, stanza,
+            cmd_lag, f"{n['path']}/pgedge/pgedge", dbname, stanza,
             host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"]
         )
-        last_receive_lsn, last_replay_lsn, lag_bytes = parse_query_output(op)
+        print(op)
+        print("-------")
+        print(extract_psql_value(op, "lag_bytes"))
+        #lag_bytes = int(extract_psql_value(op, "lag_bytes"))
+
+
     util.echo_action("Checking lag time of new cluster", "ok")
 
-    cmd = """
-    SELECT 0, 0,
-    COALESCE(SUM(CASE
-        WHEN pub.confirmed_flush_lsn <= sub.latest_end_lsn THEN 1
-        ELSE 0
-    END), 0) AS total_all_flushed
+    cmd_wal_receiver = """
+    SELECT
+        COALESCE(SUM(CASE
+            WHEN pub.confirmed_flush_lsn <= sub.latest_end_lsn THEN 1
+            ELSE 0
+        END), 0) AS total_all_flushed
     FROM
         pg_stat_subscription AS sub
     JOIN
@@ -1265,17 +1305,26 @@ def check_cluster_lag(n, dbname, stanza):
     WHERE
         pub.slot_name IS NOT NULL
     """
-    util.echo_action("Checking wall reciver")
+
+    util.echo_action("Checking wal receiver")
     lag_bytes = 1
+    start_time = time.time()
+
     while lag_bytes > 0:
-        time.sleep(1)
+        if time.time() - start_time > timeout:
+            util.echo_action("Checking wal receiver", "timeout")
+            return
+
+        time.sleep(interval)
         op = util.psql_cmd_output(
-            cmd, f"{n['path']}/pgedge/pgedge", dbname, stanza,
+            cmd_wal_receiver, f"{n['path']}/pgedge/pgedge", dbname, stanza,
             host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"]
         )
         print(op)
-        last_receive_lsn, last_replay_lsn, lag_bytes = parse_query_output(op)
-    util.echo_action("Checking wall reciver", "ok")
+        lag_bytes = int(parse_query_output(op)[2])
+
+
+    util.echo_action("Checking wal receiver", "ok")
 
 
 if __name__ == "__main__":
