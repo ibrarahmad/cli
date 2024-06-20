@@ -195,7 +195,7 @@ def change_pgconf_keyval(config_path, key, value):
 
 def create_replica(stanza, data_dir=None, backup_label=None, verbose=True):
     """Create a replica by restoring from a backup."""
-    if restore(stanza, data_dir, backup_label, verbose=verbose)
+    if restore(stanza, data_dir, backup_label, verbose=verbose):
         configure_replica_local(stanza, data_dir)
 
 def configure_replica(stanza, pg1_path, pg1_host, pg1_port, pg1_user):

@@ -913,12 +913,13 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
 
     repo1_path = f"/var/lib/pgbackrest/{s['name']}"
     os_user = n["os_user"]
+    repo1_type=n["repo1_type"]
     port = s["port"]
     pg1_path = f"{s['path']}/pgedge/data/{stanza}"
 
     args = (f'--repo1-path {repo1_path} --stanza {stanza} '
-            f'--pg1-path {pg1_path} '
-            f'--pg1-port {port} --db-socket-path /tmp')
+            f'--pg1-path {pg1_path} --repo1-type {repo1_type} --log-level-console info '
+            f'--pg1-port {port} --db-socket-path /tmp --repo1-cipher-type aes-256-cbc' )
 
     if stanza_create:
         cmd = f"{s['path']}/pgedge/pgedge backrest command stanza-create '{args}'"
@@ -930,7 +931,7 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
             key=n["ssh_key"],
             verbose=False
         )
-    cmd = f"{s['path']}/pgedge/pgedge  backrest set_postgresqlconf {stanza} {pg1_path} {repo1_path} s3"
+    cmd = f"{s['path']}/pgedge/pgedge  backrest set_postgresqlconf {stanza} {pg1_path} {repo1_path} {repo1_type}"
     util.run_rcommand(
         cmd,
         f"Modifying postgresql.conf file",
@@ -991,9 +992,9 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
         key=n["ssh_key"],
         verbose=False
     )
-    args = (f'--repo1-path /var/lib/pgbackrest/{s["name"]} ')
+    args = (f'--repo1-path /var/lib/pgbackrest/{s["name"]} --repo1-cipher-type aes-256-cbc ')
 
-    cmd1 = (f'{n["path"]}/pgedge/pgedge backrest command restore '
+    cmd1 = (f'{n["path"]}/pgedge/pgedge backrest command restore --repo1-type={repo1_type} '
             f'--stanza={stanza} --pg1-path={n["path"]}/pgedge/data/{stanza} {args}')
     util.run_rcommand(
         cmd1,
@@ -1038,7 +1039,7 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
         verbose=False
     )
     
-    cmd = (f'echo "shared_preload_libraries = \'pg_stat_statements, snowflake\'"'
+    cmd = (f'echo "shared_preload_libraries = \'pg_stat_statements, snowflake, spock\'"'
            f'>> {pgc}')
     util.run_rcommand(
         cmd,
@@ -1116,7 +1117,10 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
     )
     print(result.stdout)
 
-    cluster_data['node_groups']['aws'].append(node_config)
+    if 'aws' in cluster_data['node_groups']:
+        cluster_data['node_groups']['aws'].append(node_config)
+    elif 'localhost' in cluster_data['node_groups']:
+        cluster_data['node_groups']['localhost'].append(node_config)
     write_cluster_json(cluster_name, cluster_data)
 
 def remove_node(cluster_name, node_name):
@@ -1302,6 +1306,7 @@ def check_cluster_lag(n, dbname, stanza, timeout=600, interval=1):
             verbose=False,
             capture_output=True
         )
+        print(result.stdout)
         lag_bytes = int(extract_psql_value(result.stdout, "lag_bytes"))
 
 def check_wal_rec(n, dbname, stanza, timeout=600, interval=1):

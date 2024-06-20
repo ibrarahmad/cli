@@ -94,6 +94,10 @@ def setup_pgbackrest_links():
     osSys("sudo chmod 755 /usr/bin/pgbackrest")
 
     osSys("sudo mkdir -p -m 770 /var/log/pgbackrest")
+    osSys("sudo chown pgedge -R /var/log/pgbackrest")
+    
+    osSys("sudo mkdir -p -m 770 /var/lib/pgbackrest")
+    osSys("sudo chown pgedge -R /var/lib/pgbackrest")
 
 def modify_hba_conf():
   new_rules = [
@@ -200,8 +204,8 @@ def print_header(header):
 
 def main():
     stanza = pgV()
-    if os.path.isdir(f"/var/lib/pgbackrest/{stanza}/"):
-        utilx.ereport("WARNING", "/var/lib/pgbackrest directory already exists")
+    if os.path.isdir(f"/var/lib/pgbackrest/"):
+        util.message("/var/lib/pgbackrest directory already exists")
     
     print_header("Configuring pgbackrest")
     configure_backup_settings()
