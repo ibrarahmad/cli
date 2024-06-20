@@ -850,16 +850,26 @@ def add_node(cluster_name, source_node, target_node, stanza=" ", backup_id=" ",
     with open(node_file, 'r') as file:
         data = json.load(file)
 
-    aws_config = data['aws']
-    for node_config in aws_config:
-        node_data = node_config['nodes']
-        for node in node_data:
-            print(f"Node Name: {node['name']}")
+    if 'aws' in data:
+        aws_config = data['aws']
+        for node_config in aws_config:
+            node_data = node_config['nodes']
+            for node in node_data:
+                print(f"Node Name: {node['name']}")
+    if 'localhost' in data:
+        local_config = data['localhost']
+        for node_config in local_config:
+            node_data = node_config['nodes']
+            for node in node_data:
+                print(f"Node Name: {node['name']}")
 
     n = node_data[0]
     
     node_groups = cluster_data.get('node_groups', {})
-    nodes = node_groups.get('aws', [])
+    if 'aws' in data:
+        nodes = node_groups.get('aws', [])
+    if 'localhost' in data:
+        nodes = node_groups.get('localhost', [])
 
     for node_group in nodes:
         nodes = node_group.get('nodes', [])
