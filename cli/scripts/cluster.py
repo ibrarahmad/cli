@@ -594,58 +594,54 @@ def create_spock_db(nodes,db,db_settings):
             cmd = cmd + " " + nc + " db guc-set spock.allow_ddl_from_functions on;"
             util.echo_cmd(cmd, host=n["ip_address"], usr=n["os_user"], key=n["ssh_key"])
 
-def ssh_cross_wire_pgedge(cluster_name, db, db_settings, db_user, db_passwd, nodes, verbose):
+def ssh_cross_wire_pgedge(cluster_name, db, db_settings, db_user, db_passwd,
+                          nodes, verbose):
     """Create nodes and subs on every node in a cluster."""
 
-    sub_array=[]
     for prov_n in nodes:
         ndnm = prov_n["name"]
         ndpath = prov_n["path"]
-        nc = ndpath + os.sep + "pgedge" + os.sep + "pgedge"
+        nc = os.path.join(ndpath, "pgedge", "pgedge")
         ndip = prov_n["ip_address"]
         os_user = prov_n["os_user"]
         ssh_key = prov_n["ssh_key"]
-        if "ip_address_private" in prov_n and prov_n["ip_address_private"] != "":
-            ndip_private = prov_n["ip_address_private"]
-        else:
-            ndip_private = ndip
+        ndip_private = prov_n.get("ip_address_private", ndip)
+
         try:
             ndport = str(prov_n["port"])
-        except Exception:
+        except KeyError:
             ndport = "5432"
-        cmd1 = f"{nc} spock node-create {ndnm} 'host={ndip_private} user={os_user} dbname={db} port={ndport}' {db}"
-        
+
+        cmd1 = (f"{nc} spock node-create {ndnm} "
+                f"'host={ndip_private} user={os_user} "
+                f"dbname={db} port={ndport}' {db}")
         message = f"Creating node {ndnm}"
         run_cmd(cmd1, prov_n, message=message, verbose=verbose)
-        
+
         for sub_n in nodes:
             sub_ndnm = sub_n["name"]
             if sub_ndnm != ndnm:
                 sub_ndip = sub_n["ip_address"]
-                if "ip_address_private" in sub_n and sub_n["ip_address_private"] != "":
-                    sub_ndip_private = sub_n["ip_address_private"]
-                else:
-                    sub_ndip_private = sub_ndip
+                sub_ndip_private = sub_n.get("ip_address_private", sub_ndip)
+
                 try:
                     sub_ndport = str(sub_n["port"])
-                except Exception:
+                except KeyError:
                     sub_ndport = "5432"
+
                 sub_name = f"sub_{ndnm}{sub_ndnm}"
-                cmd = f"{nc} spock sub-create sub_{ndnm}{sub_ndnm} 'host={sub_ndip_private} user={os_user} dbname={db} port={sub_ndport}' {db}"
-                sub_array.append([cmd,ndip,os_user,ssh_key,prov_n, sub_name])
-    ## To Do: Check Nodes have been created
-    ## print(f"{nc} spock node-list {db}") ##, host=ndip, usr=os_user, key=ssh_key)
-    for n in sub_array:
-        cmd = n[0]
-        node = n[4]
-        sub_name = n[5]
-        message = f"Creating subscriptions {sub_name}"
-        run_cmd(cmd, node, message=message, verbose=verbose)
-    
-    cmd = f'{nc} spock node-list {db}'
-    message  = f"Listing spock nodes"
-    result  = run_cmd(cmd, prov_n, message=message, verbose=verbose, capture_output=True)
-    print(f"\n")
+                cmd = (f"{nc} spock sub-create {sub_name} "
+                       f"'host={sub_ndip_private} user={os_user} "
+                       f"dbname={db} port={sub_ndport}' {db}")
+                message = f"Creating subscription {sub_name}"
+                run_cmd(cmd, prov_n, message=message, verbose=verbose)
+
+    cmd = f"{nc} spock node-list {db}"
+    message = "Listing spock nodes"
+    result = run_cmd(cmd, prov_n, message=message, verbose=verbose,
+                     capture_output=True)
+
+    print("\n")
     print(result.stdout)
 
 def ssh_un_cross_wire(cluster_name, db, db_settings, db_user, db_passwd, nodes):
