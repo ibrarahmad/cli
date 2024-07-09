@@ -1,30 +1,71 @@
-name: Run CLI Setup
+name: Deploy pgEdge Local Cluster
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
-  clone-and-setup:
+  deploy-cluster:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      - name: Create a directory for cloning
-        run: mkdir -p ~/dev/cli
-
-      - name: Clone pgEdge CLI repository
-        run: git clone https://github.com/pgEdge/cli.git ~/dev/cli
-
-      - name: Run 1-cli.sh
+      - name: Install pgEdge Platform
         run: |
-          cd ~/dev/cli/devel/setup/
-          chmod +x 1-cli.sh
-          ./1-cli.sh
+          sudo apt-get update
+          sudo apt-get install -y python3 curl
+          python3 -c "$(curl -fsSL https://pgedge-download.s3.amazonaws.com/REPO/install.py)"
+
+      - name: Create pgEdge directory
+        run: mkdir -p ~/pgedge
+
+      - name: Deploy the Cluster
+        run: |
+          cd ~/pgedge
+          ./pgedge localhost cluster-create demo 3 -d lcdb -U lcusr -P 1safepassword -port1 6432 -pg 16
+
+      - name: Source PostgreSQL environment variables
+        run: |
+          source ~/pgedge/cluster/demo/n1/pgedge/pg16/pg16.env
+          source ~/pgedge/cluster/demo/n2/pgedge/pg16/pg16.env
+          source ~/pgedge/cluster/demo/n3/pgedge/pg16/pg16.env
+
+      - name: Initialize pgbench on each node
+        run: |
+          pgbench -i --port 6432 lcdb
+          pgbench -i --port 6433 lcdb
+          pgbench -i --port 6434 lcdb
+
+      - name: Add tables to default replication set
+        run: |
+          psql --port 6432 -d lcdb -c "ALTER TABLE pgbench_accounts ALTER COLUMN abalance SET (LOG_OLD_VALUE=true);"
+          psql --port 6432 -d lcdb -c "ALTER TABLE pgbench_branches ALTER COLUMN bbalance SET (LOG_OLD_VALUE=true);"
+          psql --port 6432 -d lcdb -c "ALTER TABLE pgbench_tellers ALTER COLUMN tbalance SET (LOG_OLD_VALUE=true);"
+          psql --port 6433 -d lcdb -c "ALTER TABLE pgbench_accounts ALTER COLUMN abalance SET (LOG_OLD_VALUE=true);"
+          psql --port 6433 -d lcdb -c "ALTER TABLE pgbench_branches ALTER COLUMN bbalance SET (LOG_OLD_VALUE=true);"
+          psql --port 6433 -d lcdb -c "ALTER TABLE pgbench_tellers ALTER COLUMN tbalance SET (LOG_OLD_VALUE=true);"
+          psql --port 6434 -d lcdb -c "ALTER TABLE pgbench_accounts ALTER COLUMN abalance SET (LOG_OLD_VALUE=true);"
+          psql --port 6434 -d lcdb -c "ALTER TABLE pgbench_branches ALTER COLUMN bbalance SET (LOG_OLD_VALUE=true);"
+          psql --port 6434 -d lcdb -c "ALTER TABLE pgbench_tellers ALTER COLUMN tbalance SET (LOG_OLD_VALUE=true);"
+
+      - name: Add tables to replication set
+        run: |
+          cd ~/pgedge/cluster/demo/n1/pgedge
+          ./pgedge spock repset-add-table default 'pgbench_*' lcdb
+
+      - name: Verify node configuration
+        run: |
+          psql --port 6432 -d lcdb -c "SELECT * FROM spock.node;"
+          psql --port 6433 -d lcdb -c "SELECT * FROM spock.node;"
+          psql --port 6434 -d lcdb -c "SELECT * FROM spock.node;"
+
+      - name: Verify subscription configuration
+        run: |
+          psql --port 6432 -d lcdb -c "SELECT sub_id, sub_name, sub_slot_name, sub_replication_sets FROM spock.subscription;"
+
+      - name: Test replication
+        run: |
+          psql --port 6432 -d lcdb -c "UPDATE pgbench_tellers SET filler = 'test' WHERE tid = 1;"
+          psql --port 6433 -d lcdb -c "SELECT * FROM pgbench_tellers WHERE tid = 1;"
+          psql --port 6434 -d lcdb -c "SELECT * FROM pgbench_tellers WHERE tid = 1;"
