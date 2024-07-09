@@ -1,4 +1,4 @@
-name: Deploy pgEdge Local Cluster
+name: Deploy pgEdge Local Cluster on Ubuntu
 
 on:
   push:
