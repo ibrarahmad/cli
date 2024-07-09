@@ -1,8 +1,10 @@
 name: Deploy pgEdge Local Cluster
-
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
-
+  
 jobs:
   deploy-cluster:
     runs-on: ubuntu-latest
