@@ -99,5 +99,5 @@ jobs:
       - name: Initialize the Cluster
         run: |
           ls -lrt
-          cd ~/home/runner/work/cli/cli/pgedge
+          cd /home/runner/work/cli/cli/pgedge
           ./pgedge cluster init demo
