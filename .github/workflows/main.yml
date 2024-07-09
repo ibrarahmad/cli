@@ -1,0 +1,29 @@
+name: Run CLI Setup
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  clone-and-setup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Create directory for cloning
+        run: mkdir -p ~/dev/cli
+
+      - name: Clone pgEdge CLI repository
+        run: git clone https://github.com/pgEdge/cli.git ~/dev/cli
+
+      - name: Run 1-cli.sh
+        run: |
+          cd ~/dev/cli/devel/setup/
+          chmod +x 1-cli.sh
+          ./1-cli.sh
