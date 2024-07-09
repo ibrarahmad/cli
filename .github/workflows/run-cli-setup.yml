@@ -76,4 +76,5 @@ jobs:
       - name: Initialize the Cluster
         run: |
           cd /home/runner/work/cli/cli/
+          ls -lrt
           ./pgedge cluster init demo
