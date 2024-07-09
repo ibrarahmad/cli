@@ -14,9 +14,31 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      - name: Install pgEdge Platform
+      - name: Install dependencies
         run: |
           sudo apt-get update
+          sudo apt-get install -y python3 curl openssh-client openssh-server
+          sudo systemctl start ssh
+
+      - name: Create pgedge user
+        run: |
+          sudo useradd -m pgedge
+          sudo mkdir -p /home/pgedge/.ssh
+          sudo chmod 700 /home/pgedge/.ssh
+          ssh-keygen -t rsa -b 4096 -f /home/pgedge/.ssh/id_rsa -N ""
+          sudo cp /home/pgedge/.ssh/id_rsa.pub /home/pgedge/.ssh/authorized_keys
+          sudo chmod 600 /home/pgedge/.ssh/authorized_keys
+          sudo chown -R pgedge:pgedge /home/pgedge/.ssh
+          echo "Host localhost
+            StrictHostKeyChecking no
+            UserKnownHostsFile=/dev/null" | sudo tee -a /etc/ssh/ssh_config
+
+      - name: Test SSH connection
+        run: |
+          sudo -u pgedge ssh -o "StrictHostKeyChecking no" localhost "echo SSH connection successful"
+
+      - name: Install pgEdge Platform
+        run: |
           sudo apt-get install -y python3 curl
           python3 -c "$(curl -fsSL https://pgedge-download.s3.amazonaws.com/REPO/install.py)"
 
