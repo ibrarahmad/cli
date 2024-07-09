@@ -1,0 +1,103 @@
+name: Deploy pgEdge Local Cluster
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy-cluster:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 curl openssh-client openssh-server
+          sudo systemctl start ssh
+
+      - name: Get system user
+        id: get-system-user
+        run: echo "SYSTEM_USER=$(whoami)" >> $GITHUB_ENV
+
+      - name: Setup SSH for system user
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+          cp ~/.ssh/id_rsa.pub ~/.ssh/authorized_keys
+          chmod 600 ~/.ssh/authorized_keys
+          echo "Host localhost
+            StrictHostKeyChecking no
+            UserKnownHostsFile=/dev/null" >> ~/.ssh/config
+
+      - name: Test SSH connection
+        run: ssh -o "StrictHostKeyChecking no" localhost "echo SSH connection successful"
+
+      - name: Install pgEdge Platform
+        run: |
+          sudo apt-get install -y python3 curl
+          python3 -c "$(curl -fsSL https://pgedge-download.s3.amazonaws.com/REPO/install.py)"
+
+      - name: Create pgEdge directory
+        run: mkdir -p /home/runner/work/cli/cli/pgedge/cluster/demo
+
+      - name: Add demo.json file
+        run: |
+          echo '{
+            "name": "demo",
+            "style": "aws",
+            "log_level": "none",
+            "create_date": "2024-05-08",
+            "localhost": {
+              "os_user": "${{ env.SYSTEM_USER }}",
+              "ssh_key": ""
+            },
+            "database": {
+              "databases": [
+                {
+                  "username": "lcusr",
+                  "password": "lcpasswd",
+                  "name": "lcdb"
+                }
+              ],
+              "pg_version": "16",
+              "auto_ddl": "off"
+            },
+            "node_groups": {
+              "localhost": [
+                {
+                  "nodes": [
+                    {
+                      "name": "n1",
+                      "is_active": true,
+                      "ip_address": "127.0.0.1",
+                      "port": 6432,
+                      "path": "/home/${{ env.SYSTEM_USER }}/demo/n1"
+                    }
+                  ]
+                },
+                {
+                  "nodes": [
+                    {
+                      "name": "n2",
+                      "is_active": true,
+                      "ip_address": "127.0.0.1",
+                      "port": 6433,
+                      "path": "/home/${{ env.SYSTEM_USER }}/demo/n2"
+                    }
+                  ]
+                }
+              ]
+            }
+          }' > /home/runner/work/cli/cli/pgedge/cluster/demo/demo.json
+
+      - name: Initialize the Cluster
+        run: |
+          ls -lrt
+          cd /home/runner/work/cli/cli/pgedge
+          ./pgedge cluster init demo
