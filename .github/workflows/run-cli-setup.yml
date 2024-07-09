@@ -1,10 +1,11 @@
 name: Deploy pgEdge Local Cluster
+
 on:
   push:
     branches:
       - main
   workflow_dispatch:
-  
+
 jobs:
   deploy-cluster:
     runs-on: ubuntu-latest
@@ -20,54 +21,59 @@ jobs:
           python3 -c "$(curl -fsSL https://pgedge-download.s3.amazonaws.com/REPO/install.py)"
 
       - name: Create pgEdge directory
-        run: mkdir -p ~/pgedge
+        run: mkdir -p ~/pgedge/cluster/demo
 
-      - name: Deploy the Cluster
+      - name: Add demo.json file
+        run: |
+          echo '{
+            "name": "demo",
+            "style": "aws",
+            "log_level": "none",
+            "create_date": "2024-05-08",
+            "localhost": {
+              "os_user": "pgedge",
+              "ssh_key": ""
+            },
+            "database": {
+              "databases": [
+                {
+                  "username": "lcusr",
+                  "password": "lcpasswd",
+                  "name": "lcdb"
+                }
+              ],
+              "pg_version": "16",
+              "auto_ddl": "off"
+            },
+            "node_groups": {
+              "localhost": [
+                {
+                  "nodes": [
+                    {
+                      "name": "n1",
+                      "is_active": true,
+                      "ip_address": "127.0.0.1",
+                      "port": 6432,
+                      "path": "/home/pgedge/demo/n1"
+                    }
+                  ]
+                },
+                {
+                  "nodes": [
+                    {
+                      "name": "n2",
+                      "is_active": true,
+                      "ip_address": "127.0.0.1",
+                      "port": 6433,
+                      "path": "/home/pgedge/demo/n2"
+                    }
+                  ]
+                }
+              ]
+            }
+          }' > ~/pgedge/cluster/demo/demo.json
+
+      - name: Initialize the Cluster
         run: |
           cd ~/pgedge
-          ./pgedge localhost cluster-create demo 3 -d lcdb -U lcusr -P 1safepassword -port1 6432 -pg 16
-
-      - name: Source PostgreSQL environment variables
-        run: |
-          source ~/pgedge/cluster/demo/n1/pgedge/pg16/pg16.env
-          source ~/pgedge/cluster/demo/n2/pgedge/pg16/pg16.env
-          source ~/pgedge/cluster/demo/n3/pgedge/pg16/pg16.env
-
-      - name: Initialize pgbench on each node
-        run: |
-          pgbench -i --port 6432 lcdb
-          pgbench -i --port 6433 lcdb
-          pgbench -i --port 6434 lcdb
-
-      - name: Add tables to default replication set
-        run: |
-          psql --port 6432 -d lcdb -c "ALTER TABLE pgbench_accounts ALTER COLUMN abalance SET (LOG_OLD_VALUE=true);"
-          psql --port 6432 -d lcdb -c "ALTER TABLE pgbench_branches ALTER COLUMN bbalance SET (LOG_OLD_VALUE=true);"
-          psql --port 6432 -d lcdb -c "ALTER TABLE pgbench_tellers ALTER COLUMN tbalance SET (LOG_OLD_VALUE=true);"
-          psql --port 6433 -d lcdb -c "ALTER TABLE pgbench_accounts ALTER COLUMN abalance SET (LOG_OLD_VALUE=true);"
-          psql --port 6433 -d lcdb -c "ALTER TABLE pgbench_branches ALTER COLUMN bbalance SET (LOG_OLD_VALUE=true);"
-          psql --port 6433 -d lcdb -c "ALTER TABLE pgbench_tellers ALTER COLUMN tbalance SET (LOG_OLD_VALUE=true);"
-          psql --port 6434 -d lcdb -c "ALTER TABLE pgbench_accounts ALTER COLUMN abalance SET (LOG_OLD_VALUE=true);"
-          psql --port 6434 -d lcdb -c "ALTER TABLE pgbench_branches ALTER COLUMN bbalance SET (LOG_OLD_VALUE=true);"
-          psql --port 6434 -d lcdb -c "ALTER TABLE pgbench_tellers ALTER COLUMN tbalance SET (LOG_OLD_VALUE=true);"
-
-      - name: Add tables to replication set
-        run: |
-          cd ~/pgedge/cluster/demo/n1/pgedge
-          ./pgedge spock repset-add-table default 'pgbench_*' lcdb
-
-      - name: Verify node configuration
-        run: |
-          psql --port 6432 -d lcdb -c "SELECT * FROM spock.node;"
-          psql --port 6433 -d lcdb -c "SELECT * FROM spock.node;"
-          psql --port 6434 -d lcdb -c "SELECT * FROM spock.node;"
-
-      - name: Verify subscription configuration
-        run: |
-          psql --port 6432 -d lcdb -c "SELECT sub_id, sub_name, sub_slot_name, sub_replication_sets FROM spock.subscription;"
-
-      - name: Test replication
-        run: |
-          psql --port 6432 -d lcdb -c "UPDATE pgbench_tellers SET filler = 'test' WHERE tid = 1;"
-          psql --port 6433 -d lcdb -c "SELECT * FROM pgbench_tellers WHERE tid = 1;"
-          psql --port 6434 -d lcdb -c "SELECT * FROM pgbench_tellers WHERE tid = 1;"
+          ./pgedge cluster init demo
