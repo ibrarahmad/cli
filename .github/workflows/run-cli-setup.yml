@@ -44,7 +44,7 @@ jobs:
           python3 -c "$(curl -fsSL https://pgedge-download.s3.amazonaws.com/REPO/install.py)"
 
       - name: Create pgEdge directory
-        run: mkdir -p ~/pgedge/cluster/demo
+        run: mkdir -p /home/runner/work/cli/cli/pgedge/cluster/demo
 
       - name: Add demo.json file
         run: |
@@ -94,11 +94,10 @@ jobs:
                 }
               ]
             }
-          }' > ~/pgedge/cluster/demo/demo.json
+          }' > /home/runner/work/cli/cli/pgedge/cluster/demo/demo.json
 
       - name: Initialize the Cluster
         run: |
           ls -lrt
-          cd ~/pgedge
-          ls -lrt ~/pgedge
+          cd ~/home/runner/work/cli/cli/pgedge
           ./pgedge cluster init demo
