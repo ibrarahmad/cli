@@ -75,7 +75,7 @@ jobs:
 
       - name: Initialize the Cluster
         run: |
-          cd /home/runner/work/cli/cli/
+          cd /home/runner/work/cli/cli/pgedge/
           ls -lrt
           ls -lrt ~/
           ls -lrt ~/pgedge/
