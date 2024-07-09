@@ -1,5 +1,7 @@
 # The Command Line Interface (CLI) for pgEdge
 
+![Deploy pgEdge Local Cluster](https://github.com/ibrarahmad/cli/actions/workflows/deploy-pgedge-cluster.yml/badge.svg?branch=main)
+
 This is the pgEdge Command Line Interface (CLI) for managing components. 
 Take a look at our main pgEdge [repo](https://github.com/pgEdge/pgedge) for tips and example CLI commands.
 
@@ -21,4 +23,3 @@ Check out our [commands](https://github.com/pgEdge/pgedge/tree/main?tab=readme-o
 3.) run `./1-cli.sh`
 
 4.) configure your ~/.aws/config credentials
-
