@@ -1,6 +1,6 @@
 # The Command Line Interface (CLI) for pgEdge
 
-![Deploy pgEdge Local Cluster](https://github.com/ibrarahmad/cli/actions/workflows/pgedge-local-cluster-ubuntu.yaml/badge.svg?branch=main)
+![Deploy pgEdge Local Cluster on Ubuntu](https://github.com/ibrarahmad/cli/actions/workflows/pgedge-local-cluster-ubuntu.yaml/badge.svg?branch=main)
 
 This is the pgEdge Command Line Interface (CLI) for managing components. 
 Take a look at our main pgEdge [repo](https://github.com/pgEdge/pgedge) for tips and examples of CLI commands.
