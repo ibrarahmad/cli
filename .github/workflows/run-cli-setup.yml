@@ -21,7 +21,7 @@ jobs:
           python3 -c "$(curl -fsSL https://pgedge-download.s3.amazonaws.com/REPO/install.py)"
 
       - name: Create pgEdge directory
-        run: mkdir -p /home/runner/work/cli/cli/cluster/demo
+        run: mkdir -p /home/runner/work/cli/cli/pgedge/cluster/demo
 
       - name: Add demo.json file
         run: |
@@ -54,7 +54,7 @@ jobs:
                       "is_active": true,
                       "ip_address": "127.0.0.1",
                       "port": 6432,
-                      "path": "/home/pgedge/demo/n1"
+                      "path": "/home/runner/work/demo/n1"
                     }
                   ]
                 },
@@ -65,18 +65,15 @@ jobs:
                       "is_active": true,
                       "ip_address": "127.0.0.1",
                       "port": 6433,
-                      "path": "/home/pgedge/demo/n2"
+                      "path": "/home/runner/work/demo/n2"
                     }
                   ]
                 }
               ]
             }
-          }' > /home/runner/work/cli/cli/cluster/demo/demo.json
+          }' > /home/runner/work/cli/cli/pgedge/cluster/demo/demo.json
 
       - name: Initialize the Cluster
         run: |
           cd /home/runner/work/cli/cli/pgedge/
-          ls -lrt
-          ls -lrt ~/
-          ls -lrt ~/pgedge/
           ./pgedge cluster init demo
