@@ -36,20 +36,26 @@ compatLIBC () {
   return
 }
 
-
 isEL () {
   ELx=EL$1
 
- 
-  grep "VERSION_ID=\"$1" /etc/redhat-release > /dev/null 2>&1
-  rc=$?
-  if [ "$rc" == "0" ]; then
+  # Extract the version ID from /etc/os-release as an integer
+  VERSION_ID=$(grep -oP 'VERSION_ID="\K[0-9]+' /etc/os-release)
+  
+  # Check if VERSION_ID was set and is a valid number
+  if [[ -z "$VERSION_ID" || ! "$VERSION_ID" =~ ^[0-9]+$ ]]; then
+    echoX "ERROR: Unable to detect Enterprise Linux version."
+    exit 1
+  fi
+
+  # Check if the version is 8 or higher
+  if [ "$VERSION_ID" -ge 8 ]; then
     echoX "#       $ELx - OK"
 
-    ## also make sure wget and python3.11 are installed
+    ## Ensure wget and python3.11 are installed
     wget --version > /dev/null 2>&1
     rc=$?
-    if [ ! "$rc" == "0" ]; then
+    if [ "$rc" -ne 0 ]; then
       sudo yum install -y wget python3.11 python3.11-pip
     fi
 
@@ -59,7 +65,6 @@ isEL () {
   echoX "ERROR: must be Enterprise Linux 8+"
   exit 1
 }
-
 
 installPERL () {
   sudo yum install -y perl perl-devel perl-DBI
